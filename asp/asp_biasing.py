@@ -1,9 +1,11 @@
 import pandas
 from tqdm import tqdm
-asp_table = "asp/exp/asp_table_jieba.csv"
-result_file = "wenet_decode/exp/result_catslu_biasing.csv"
-output_file = "wenet_decode/exp/result_catslu_biasing_asp.csv"
-keyword_file = "data/video_test/keyword.txt"
+asp_table = "asp/exp/asp_table.csv"
+result_file = "data/e_sun/dev.csv"
+output_file = "data/e_sun/dev_asp.csv"
+keyword_file = "data/e_sun/keyword.txt"
+if_check_keyword = False # 是否句子中包含关键词就不偏移
+
 df_asp = pandas.read_csv(asp_table)
 df_result = pandas.read_csv(result_file)
 keyword = open(keyword_file,"r").readlines()
@@ -39,7 +41,7 @@ def biasing(asr,num):
 
 for i in tqdm(range(len(df_result))):
     asr = df_result["asr"][i]
-    if check_keyword(asr): # 如果已經有辨識對的關鍵詞就不執行偏移
+    if if_check_keyword and check_keyword(asr): # 如果已經有辨識對的關鍵詞就不執行偏移
         continue
 
     a = biasing(asr,4)

@@ -15,7 +15,7 @@ data:
         path_src: data/asp_data/src-val_opennmt.txt
         path_tgt: data/asp_data/tgt-val_opennmt.txt
 
-save_model: asp/exp/model.mt_zh/
+save_model: asp/exp/opennmt_esun/
 save_checkpoint_steps: 10000
 keep_checkpoint: 10
 seed: 3435

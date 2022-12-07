@@ -1,7 +1,7 @@
 import pandas
-
-df = pandas.read_csv("wenet_decode/exp/result_catslu_biasing_asp.csv")
-
+# wenet_decode/exp/result_catslu_biasing_asp.csv
+df = pandas.read_csv("data/e_sun/dev_asp.csv")
+cal_keyword_wer = False
 
 def cer(r: list, h: list):
     """
@@ -42,8 +42,10 @@ for i in range(len(df)):
     this_cer = cer(ground, asr)
     total_cer += this_cer
 
-    if not df["keyword"][i] in df["asr"][i]:
-        keyword_wer += 1
+    if cal_keyword_wer:
+        if not df["keyword"][i] in df["asr"][i]:
+            keyword_wer += 1
 
 print("cer:",total_cer/len(df))
-print("keyword_wer:",keyword_wer/len(df))
+if cal_keyword_wer:
+    print("keyword_wer:",keyword_wer/len(df))

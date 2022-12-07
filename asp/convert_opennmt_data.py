@@ -39,7 +39,7 @@ def convert_txt_jieba(input,output):
     pandas.DataFrame(keyword_jieba).to_csv(output,sep="\t",header=None,index=None)
     convert_txt(output,output+"_space")
 
-def make_nomal_word_table(data_csv,nomal_num,out_txt): # 制作常见词表
+def make_nomal_word_table(data_csv,nomal_num,out_csv): # 制作常见词表
     df = pandas.read_csv(data_csv)
     counter_dict={}
     for i in tqdm(range(len(df))):
@@ -73,14 +73,20 @@ def make_nomal_word_table(data_csv,nomal_num,out_txt): # 制作常见词表
                     counter_dict[word] = 1
 
     nomal_word = []
+    word_count = []
     for i in counter_dict.keys():
         if counter_dict[i] >= nomal_num:
             nomal_word.append(i)
-    
-    pandas.DataFrame(nomal_word).to_csv(out_txt,sep="\t",header=None,index=None)
+            word_count.append(counter_dict[i])
+    df = pandas.DataFrame(nomal_word,columns=["word"])
+    df["count"] = word_count
+    df.to_csv(out_csv,index=None)
+
 
 def check_nomal_word(word,nomal_word): # 检查目标词是否为常见词
-    nomal_word = open(nomal_word,"r").read().splitlines()
+    df = pandas.read_csv(nomal_word)
+    nomal_word = list(df["word"])
+    # nomal_word = open(nomal_word,"r").read().splitlines()
     if word in nomal_word:
         return True
     else:
@@ -98,7 +104,7 @@ def convert_2_asp_table(asp_out,ori_keyword,out_csv,nbest): # 将asp模型的输
             if "<unk>" not in str and \
             df_asp["score"][i+j] > -1 and \
             len(str) < 15 and \
-            not check_nomal_word(str,"asp/exp/nomal_word.txt"):
+            not check_nomal_word(str,"asp/exp/nomal_word_esun.csv"):
                 asp_word[i//nbest].append(str)
     df_ori["asp"] = asp_word
     # 删去与原来相同的词
@@ -113,9 +119,9 @@ if __name__ == "__main__":
     # convert("data/asp_data/train.csv","data/asp_data/train_opennmt.txt")
     # convert("data/asp_data/val.csv","data/asp_data/val_opennmt.txt")
     # convert("data/asp_data/data.csv","data/asp_data/data_opennmt.txt")
-    # convert_txt("data/video_test/keyword.txt","data/video_test/keyword_space.txt")
+    # convert_txt("data/e_sun/keyword.txt","data/e_sun/keyword_space.txt")
     # convert_txt_jieba("data/video_test/keyword.txt","data/video_test/keyword_jieba.txt")
-    # make_nomal_word_table("data/aishell2/data.csv",500,"asp/exp/nomal_word.txt")
-    convert_2_asp_table("asp/exp/opennmt_out.txt","data/video_test/keyword_jieba.txt","asp/exp/asp_table_jieba.csv",5)
+    # make_nomal_word_table("data/e_sun/train.csv",1000,"asp/exp/nomal_word_esun.csv")
+    convert_2_asp_table("asp/exp/opennmt_out.txt","data/e_sun/keyword.txt","asp/exp/asp_table.csv",5)
     # print(check_nomal_word("你好","asp/exp/nomal_word.txt"))
     

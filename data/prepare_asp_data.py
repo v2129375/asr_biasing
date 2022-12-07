@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 csv_file = "data/aishell2/data.csv"
+read_csv_direct = False # 直接从csv文件读取asr和text，不用整合text
 asr_text = "data/aishell2/text"
 asp_data_dir = "data/asp_data"
 asp_csv_file = f"{asp_data_dir}/data_aishell2.csv"
@@ -93,10 +94,11 @@ def min_distance(word1, word2):
 
 df = pandas.read_csv(csv_file)
 print(df)
-asr_df = pandas.read_table(asr_text,sep=" ",header=None,names=["id","asr"])
-print(asr_df)
-df = pandas.merge(df,asr_df,on="id")
-print(df)
+if not read_csv_direct:
+    asr_df = pandas.read_table(asr_text,sep=" ",header=None,names=["id","asr"])
+    print(asr_df)
+    df = pandas.merge(df,asr_df,on="id")
+    print(df)
 asp_df = pandas.DataFrame(columns=["text","wrong"])
 new_data = []
 for i in tqdm(range(len(df))):

@@ -2,7 +2,7 @@
 import pandas
 from tqdm import tqdm
 data_dir = "data/asp_data"
-csv_file = ["data_aishell_train.csv","data_aishell2.csv"]
+csv_file = ["data_e_sun.csv","data_aishell2.csv","data_aishell_train.csv"] # 整合多个dataset用来train asp模型
 
 df = pandas.DataFrame(columns=["text","wrong"])
 for i in csv_file:
@@ -12,7 +12,7 @@ for i in csv_file:
 # 设定清理资料的规则
 drop_index = []
 for i in tqdm(range(len(df))):
-    if len(str(df["text"][i])) != len(str(df["wrong"][i])): # 删除字数不相同的
+    if len(str(df["text"][i])) != len(str(df["wrong"][i])) or len(str(df["text"][i]))==0: # 删除字数不相同的或为0的
         drop_index.append(i)
 df.drop(drop_index,inplace=True)
 
