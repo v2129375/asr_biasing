@@ -1,6 +1,6 @@
 import pandas
 
-df = pandas.read_csv("wenet_decode/exp/result_biasing.csv")
+df = pandas.read_csv("wenet_decode/exp/result_catslu_biasing_asp.csv")
 
 
 def cer(r: list, h: list):

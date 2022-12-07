@@ -70,11 +70,12 @@ def min_distance(word1, word2):
         elif action[i] == "replace":
             wrong_index.append(i)
 
-    return word1,word2,wrong_index   
+    return word1,word2,wrong_index 
+
 if __name__ == "__main__":
     list1 = ['他', '在', '落后', '的', '情况', '下', '打出', '九点', '踢', '环']
     list2 = ['她', '在', '落后', '的', '情况', '下', '打出', '九点', '七环']
-    list1,list2,wrong_index = min_distance(list1, list2)
-    print(list1)
-    print(list2)
-    print(wrong_index)
+    # list1,list2,wrong_index = min_distance(list1, list2)
+    # print(list1)
+    # print(list2)
+    # print(wrong_index)
