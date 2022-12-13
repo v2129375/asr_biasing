@@ -1,6 +1,6 @@
 #!/bin/bash
 
-test_data=data/aishell2/data.list
+test_data=data/music/data.list
 result_file=wenet_decode/exp/result.txt
 wenet_dir=/Data/wenet
 model_dir=/Data/models

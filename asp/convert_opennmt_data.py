@@ -104,7 +104,7 @@ def convert_2_asp_table(asp_out,ori_keyword,out_csv,nbest): # 将asp模型的输
             if "<unk>" not in str and \
             df_asp["score"][i+j] > -1 and \
             len(str) < 15 and \
-            not check_nomal_word(str,"asp/exp/nomal_word_esun.csv"):
+            not check_nomal_word(str,"asp/exp/nomal_word.csv"):
                 asp_word[i//nbest].append(str)
     df_ori["asp"] = asp_word
     # 删去与原来相同的词
@@ -119,9 +119,9 @@ if __name__ == "__main__":
     # convert("data/asp_data/train.csv","data/asp_data/train_opennmt.txt")
     # convert("data/asp_data/val.csv","data/asp_data/val_opennmt.txt")
     # convert("data/asp_data/data.csv","data/asp_data/data_opennmt.txt")
-    # convert_txt("data/e_sun/keyword.txt","data/e_sun/keyword_space.txt")
+    # convert_txt("data/city/keyword.txt","data/city/keyword_space.txt")
     # convert_txt_jieba("data/video_test/keyword.txt","data/video_test/keyword_jieba.txt")
-    # make_nomal_word_table("data/e_sun/train.csv",1000,"asp/exp/nomal_word_esun.csv")
-    convert_2_asp_table("asp/exp/opennmt_out.txt","data/e_sun/keyword.txt","asp/exp/asp_table.csv",5)
+    # make_nomal_word_table("data/aishell2/data.csv",500,"asp/exp/nomal_word.csv")
+    convert_2_asp_table("asp/exp/opennmt_out.txt","data/city/keyword.txt","asp/exp/asp_table.csv",5)
     # print(check_nomal_word("你好","asp/exp/nomal_word.txt"))
     

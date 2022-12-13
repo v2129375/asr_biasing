@@ -1,10 +1,10 @@
 import pandas
 from tqdm import tqdm
 asp_table = "asp/exp/asp_table.csv"
-result_file = "data/e_sun/dev.csv"
-output_file = "data/e_sun/dev_asp.csv"
-keyword_file = "data/e_sun/keyword.txt"
-if_check_keyword = False # 是否句子中包含关键词就不偏移
+result_file = "wenet_decode/exp/result_city_biasing.csv"
+output_file = "wenet_decode/exp/result_city_biasing_asp.csv"
+keyword_file = "data/city/keyword.txt"
+if_check_keyword = True # 是否句子中包含关键词就不偏移
 
 df_asp = pandas.read_csv(asp_table)
 df_result = pandas.read_csv(result_file)

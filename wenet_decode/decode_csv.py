@@ -4,11 +4,11 @@ from tqdm import tqdm
 import wenetruntime as wenet
 import pandas
 import re
-csv_file = "data/aishell2/data.csv"
-keyword_file = "data/video_test/keyword.txt"
+csv_file = "data/city/test.csv"
+keyword_file = "data/city/keyword.txt"
 model_dir = "/Data/models/20220506_u2pp_conformer_libtorch"
-result_csv = "exp/result_aishell2.csv"
-biasing = False
+result_csv = "wenet_decode/exp/result_city_biasing.csv"
+biasing = True
 
 def find_chinese(file):
     pattern = re.compile(r'[^\u4e00-\u9fa5]')

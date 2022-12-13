@@ -1,7 +1,7 @@
 import pandas
 # wenet_decode/exp/result_catslu_biasing_asp.csv
-df = pandas.read_csv("data/e_sun/dev_asp.csv")
-cal_keyword_wer = False
+df = pandas.read_csv("wenet_decode/exp/result_city_biasing_asp.csv")
+cal_keyword_wer = True
 
 def cer(r: list, h: list):
     """

@@ -1,7 +1,8 @@
 import pandas
 
-keyword_file = "video_test/keyword.txt"
-csv_file = "video_test/test.csv"
+keyword_file = "data/music/keyword.txt"
+csv_file = "data/music/test.csv"
+
 f = open(keyword_file)
 keywords = f.readlines()
 for i in range(len(keywords)):
