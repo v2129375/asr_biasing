@@ -6,8 +6,8 @@ import re
 import warnings
 warnings.simplefilter("ignore")
 # 需要手动设置的内容
-train_data_root = "/Data/dataset/catslu_traindev"
-test_data_root = "/Data/dataset/catslu_test"
+train_data_root = "/home/v2129375/dataset/catslu_traindev"
+test_data_root = "/home/v2129375/dataset/catslu_test"
 local_data_path = "data/city"
 # 根据手动设置的路径自动设置的路径
 test_csv_path = f"{local_data_path}/test.csv"
@@ -52,7 +52,7 @@ for i in data:
                     continue
                 have_keyword = True
         if have_keyword:
-            df = df.append({"manual_transcript":manual_transcript,"path":path,"keyword":keyword},ignore_index=True)
+            df = pandas.concat([df, pandas.DataFrame([{"manual_transcript":manual_transcript,"path":path,"keyword":keyword}])], ignore_index=True)
 # 原先测试集中的内容
 data = json.load(open(f"{test_data_root}/data/weather/test.json"))
 for i in data:
@@ -68,6 +68,6 @@ for i in data:
                     continue
                 have_keyword = True
         if have_keyword:
-            df = df.append({"manual_transcript":manual_transcript,"path":path,"keyword":keyword},ignore_index=True)
+            df = pandas.concat([df, pandas.DataFrame([{"manual_transcript":manual_transcript,"path":path,"keyword":keyword}])], ignore_index=True)
 df.to_csv(test_csv_path,index=False)
 

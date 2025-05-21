@@ -7,7 +7,7 @@ csv_file = ["data_e_sun.csv","data_aishell2.csv","data_aishell_train.csv"] # 整
 df = pandas.DataFrame(columns=["text","wrong"])
 for i in csv_file:
     this_df = pandas.read_csv(f"{data_dir}/{i}")
-    df = df.append(this_df,ignore_index=True)
+    df = pandas.concat([df, this_df], ignore_index=True)
 
 # 设定清理资料的规则
 drop_index = []

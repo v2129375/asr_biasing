@@ -115,7 +115,7 @@ for i in tqdm(range(len(df))):
             text = ground[j]
             # print({"wrong":wrong,"text":text})
             new_data.append({"wrong":wrong,"text":text})
-asp_df = asp_df.append(new_data,ignore_index=True)    
+asp_df = pandas.concat([asp_df, pandas.DataFrame(new_data)], ignore_index=True)    
 asp_df.to_csv(asp_csv_file,index=False)        
             
     
