@@ -2,3 +2,5 @@ asp/exp
 cache_dir
 data/aishell2
 outputs
+intent/model
+intent/phi4_model_finetuned
