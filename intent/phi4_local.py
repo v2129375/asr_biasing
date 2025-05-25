@@ -19,7 +19,7 @@ class Phi4:
     def load_phi4(self):
 
         # Define model path - 使用本地微调模型
-        model_path = "intent/phi4_model_finetuned/"
+        model_path = "intent/model/"
         base_model_path = "microsoft/Phi-4-multimodal-instruct"
 
         # Load processor from base model to get necessary configurations
@@ -136,3 +136,4 @@ Only output one of: video, music, or city.
 
 
     phi4.release_phi4()
+    

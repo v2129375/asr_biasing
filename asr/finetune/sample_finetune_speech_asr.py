@@ -1,6 +1,6 @@
 """
-finetune Phi-4-multimodal-instruct on an speech intent classification task
-在语音意图分类任务上微调 Phi-4-multimodal-instruct 模型
+finetune Phi-4-multimodal-instruct on an ASR (Automatic Speech Recognition) task
+在ASR（自动语音识别）任务上微调 Phi-4-multimodal-instruct 模型
 
 scipy==1.15.1
 peft==0.13.2
@@ -17,7 +17,6 @@ from pathlib import Path
 
 import torch
 import numpy as np
-from sklearn.metrics import classification_report, accuracy_score, f1_score
 import soundfile as sf
 from accelerate import Accelerator
 from accelerate.utils import gather_object
@@ -35,32 +34,7 @@ from transformers import (
 
 
 # 任务指令
-INSTRUCTION = """
-Task:
-You are given an audio file in Mandarin Chinese containing a single spoken instruction. Your task is to classify the intent into one of three categories.
-Classification process:
-First, determine if the audio intent belongs to either video or music.
-If it is not related to video or music, output city.
-If it is related to video or music, pay extra attention to distinguishing between these two categories:
-If the content could be both (such as a title that is both a song and a TV series), classify it according to common public perception.
-For example, if the query is about a song, output music; if it is about a TV show or movie, output video.
-Category definitions:
-video: Related to movies, TV shows, cartoons, or any video content.
-Examples: "我想看战狼" ("I want to watch Wolf Warrior"), "播放熊出没" ("Play Boonie Bears")
-music: Related to songs, singers, or music.
-Examples: "播放小星星" ("Play Twinkle Twinkle Little Star"), "我要听周杰伦的歌" ("I want to listen to Jay Chou's songs")
-city: Related to weather or city information.
-Examples: "北京今天天气怎么样" ("What's the weather like in Beijing today?"), "上海的温度" ("Temperature in Shanghai")
-Instructions:
-Only respond with one of these three labels: video, music, or city (in English, all lowercase).
-Do not output any other explanation or language.
-If the intent does not exactly fit video or music, always choose city by default.
-When in doubt between video and music, use the category that matches common public understanding.
-Input:
-A Mandarin Chinese audio file with a single spoken instruction.
-Output:
-Only output one of: video, music, or city.
-"""
+INSTRUCTION = "Transcribe the audio clip into text."
 # 答案后缀标记，用于标识生成结束
 ANSWER_SUFFIX = "<|end|><|endoftext|>"
 # 标签忽略索引值，用于损失计算中忽略某些位置
@@ -105,7 +79,7 @@ class MultipleTokenBatchStoppingCriteria(StoppingCriteria):
 
 
 class CatsluDataset(Dataset):
-    """CATSLU数据集类，用于语音意图分类任务"""
+    """CATSLU数据集类，用于ASR任务"""
     def __init__(self, processor, data_path, split="train", rank=0, world_size=1):
         """
         初始化CATSLU数据集
@@ -122,10 +96,6 @@ class CatsluDataset(Dataset):
         self.training = "train" in split
         self.processor = processor
         self.instruction = INSTRUCTION
-        
-        # 提取所有唯一的意图类别（source列）
-        self.intent_categories = sorted(self.data['source'].unique().tolist())
-        self.intent_to_id = {intent: idx for idx, intent in enumerate(self.intent_categories)}
         
         # 如果在分布式环境中，分片数据集
         if world_size > 1:
@@ -176,11 +146,11 @@ class CatsluDataset(Dataset):
             return_tensors='pt'
         )
         
-        # 获取意图标签
-        intent_label = data['source']
+        # 获取转录标签
+        transcript_label = data['manual_transcript']
         
         # 构建答案，添加结束标记
-        answer = f"{intent_label}{ANSWER_SUFFIX}"
+        answer = f"{transcript_label}{ANSWER_SUFFIX}"
         answer_ids = self.processor.tokenizer(answer, return_tensors='pt').input_ids
         
         # 根据是否为训练模式，构建不同的输入和标签
@@ -189,17 +159,25 @@ class CatsluDataset(Dataset):
             input_ids = torch.cat([inputs.input_ids, answer_ids], dim=1)
             labels = torch.full_like(input_ids, _IGNORE_INDEX)
             labels[:, -answer_ids.shape[1] :] = answer_ids
+            return {
+                'input_ids': input_ids,
+                'labels': labels,
+                'input_audio_embeds': inputs.input_audio_embeds,
+                'audio_embed_sizes': inputs.audio_embed_sizes,
+            }
         else:
-            # 评估时，输入和标签分开
+            # 评估时，输入和标签分开，并返回关键词信息
             input_ids = inputs.input_ids
             labels = answer_ids
-
-        return {
-            'input_ids': input_ids,
-            'labels': labels,
-            'input_audio_embeds': inputs.input_audio_embeds,
-            'audio_embed_sizes': inputs.audio_embed_sizes,
-        }
+            keyword = data.get('keyword', '')  # 获取关键词，如果不存在则为空字符串
+            return {
+                'input_ids': input_ids,
+                'labels': labels,
+                'input_audio_embeds': inputs.input_audio_embeds,
+                'audio_embed_sizes': inputs.audio_embed_sizes,
+                'keyword': keyword,
+                'manual_transcript': transcript_label,
+            }
 
 
 def pad_sequence(sequences, padding_side='right', padding_value=0):
@@ -259,7 +237,8 @@ def catslu_collate_fn(batch):
     input_audio_embeds_list = []
     audio_embed_sizes_list = []
     audio_attention_mask_list = []
-    intent_list = []
+    keywords_list = []
+    manual_transcripts_list = []
     
     for inputs in batch:
         input_ids_list.append(inputs['input_ids'][0])
@@ -269,6 +248,10 @@ def catslu_collate_fn(batch):
         audio_attention_mask_list.append(
             inputs['input_audio_embeds'].new_full((inputs['input_audio_embeds'].size(1),), True, dtype=torch.bool)
         )
+        # 如果是评估模式，添加关键词和转录文本信息
+        if 'keyword' in inputs:
+            keywords_list.append(inputs['keyword'])
+            manual_transcripts_list.append(inputs['manual_transcript'])
         
 
     try:
@@ -291,7 +274,7 @@ def catslu_collate_fn(batch):
     audio_embed_sizes = torch.cat(audio_embed_sizes_list)  # 连接音频嵌入大小
 
     # 返回包含所有必要字段的批次特征
-    return BatchFeature(
+    batch_feature = BatchFeature(
         {
             'input_ids': input_ids,
             'labels': labels,
@@ -302,6 +285,13 @@ def catslu_collate_fn(batch):
             'input_mode': 2,  # speech mode 语音模式
         }
     )
+    
+    # 如果是评估模式，添加关键词和转录文本信息
+    if keywords_list:
+        batch_feature['keywords'] = keywords_list
+        batch_feature['manual_transcripts'] = manual_transcripts_list
+        
+    return batch_feature
 
 
 def create_model(model_name_or_path, use_flash_attention=False):
@@ -318,19 +308,50 @@ def create_model(model_name_or_path, use_flash_attention=False):
     return model
 
 
+def cer(r: list, h: list):
+    """
+    使用Levenshtein距离计算字符错误率(CER)
+    Calculation of CER with Levenshtein distance.
+    """
+    # 初始化
+    import numpy
+    d = numpy.zeros((len(r) + 1) * (len(h) + 1), dtype=numpy.uint16)
+    d = d.reshape((len(r) + 1, len(h) + 1))
+    for i in range(len(r) + 1):
+        for j in range(len(h) + 1):
+            if i == 0:
+                d[0][j] = j
+            elif j == 0:
+                d[i][0] = i
+
+    # 计算
+    for i in range(1, len(r) + 1):
+        for j in range(1, len(h) + 1):
+            if r[i - 1] == h[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+            else:
+                substitution = d[i - 1][j - 1] + 1
+                insertion = d[i][j - 1] + 1
+                deletion = d[i - 1][j] + 1
+                d[i][j] = min(substitution, insertion, deletion)
+
+    return d[len(r)][len(h)] / float(len(r))
+
+
 @torch.no_grad()
 def evaluate(
     model, processor, eval_dataset, save_path=None, disable_tqdm=False, eval_batch_size=1
 ):
     """
-    评估模型在意图分类任务上的性能
+    评估模型在ASR任务上的性能，计算CER和Keyword Error Rate
     """
     rank = int(os.environ.get('RANK', 0))
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
 
     model.eval()  # 设置为评估模式
-    all_generated_intents = []  # 存储生成的意图
-    all_labels = []  # 存储实际标签
+    all_generated_transcripts = []  # 存储生成的转录结果
+    all_ground_truth = []  # 存储真实转录文本
+    all_keywords = []  # 存储关键词
 
     # 创建评估数据加载器
     eval_dataloader = torch.utils.data.DataLoader(
@@ -355,14 +376,14 @@ def evaluate(
     ):
         # 设置停止条件
         stopping_criteria=StoppingCriteriaList([MultipleTokenBatchStoppingCriteria(stop_tokens_ids, batch_size=inputs.input_ids.size(0))])
-        inputs_to_model = {k: v for k, v in inputs.items() if k != 'intent'}
+        inputs_to_model = {k: v for k, v in inputs.items() if k not in ['keywords', 'manual_transcripts']}
         inputs_to_model = {k: v.to(f'cuda:{local_rank}') if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
         
-        # 生成意图预测
+        # 生成ASR转录
         generated_ids = model.generate(
             **inputs_to_model, 
             eos_token_id=processor.tokenizer.eos_token_id, 
-            max_new_tokens=16,  # 意图分类只需要较短的生成长度
+            max_new_tokens=64,  # ASR任务需要更长的生成长度
             stopping_criteria=stopping_criteria,
         )
 
@@ -375,48 +396,92 @@ def evaluate(
             generated_ids.shape[-1],
         )
         
-        # 解码生成的意图，仅保留模型生成部分
-        generated_intents = [
+        # 解码生成的转录结果，仅保留模型生成部分
+        generated_transcripts = [
             processor.decode(_pred_ids[inputs["input_ids"].shape[1] : _stop_tokens_idx], skip_special_tokens=True, clean_up_tokenization_spaces=False)
             for _pred_ids, _stop_tokens_idx in zip(generated_ids, stop_tokens_idx)
         ]
         
         # 移除生成文本中的ANSWER_SUFFIX
-        generated_intents = [intent.replace(ANSWER_SUFFIX, "").strip() for intent in generated_intents]
-        all_generated_intents.extend(generated_intents)
-        # 解码标签
-        labels = [processor.decode(_label_ids[_label_ids != 0]).removesuffix(ANSWER_SUFFIX) for _label_ids in inputs["labels"]]
-        all_labels.extend(labels)
+        generated_transcripts = [transcript.replace(ANSWER_SUFFIX, "").strip() for transcript in generated_transcripts]
+        all_generated_transcripts.extend(generated_transcripts)
+        
+        # 解码真实转录文本
+        ground_truth = [processor.decode(_label_ids[_label_ids != 0]).removesuffix(ANSWER_SUFFIX) for _label_ids in inputs["labels"]]
+        all_ground_truth.extend(ground_truth)
+        
+        # 获取关键词信息（如果有的话）
+        if 'keywords' in inputs:
+            all_keywords.extend(inputs['keywords'])
 
     # 在分布式环境中收集所有进程的结果
-    all_generated_intents = gather_object(all_generated_intents)
-    all_labels = gather_object(all_labels)
+    all_generated_transcripts = gather_object(all_generated_transcripts)
+    all_ground_truth = gather_object(all_ground_truth)
+    all_keywords = gather_object(all_keywords)
     
     # 只在主进程中计算评估指标
     if rank == 0:
-        assert len(all_generated_intents) == len(all_labels)
+        assert len(all_generated_transcripts) == len(all_ground_truth)
         
-        # 计算分类指标
-        accuracy = accuracy_score(y_true=all_labels, y_pred=all_generated_intents)
-        f1 = f1_score(y_true=all_labels, y_pred=all_generated_intents, average='weighted')
-        report = classification_report(y_true=all_labels, y_pred=all_generated_intents, output_dict=True, digits=4)
+        # 计算CER
+        total_cer = 0
+        for i in range(len(all_generated_transcripts)):
+            ground = all_ground_truth[i]
+            asr_result = all_generated_transcripts[i]
+            ground_chars = [x for x in ground]
+            asr_chars = [x for x in asr_result]
+            this_cer = cer(ground_chars, asr_chars)
+            total_cer += this_cer
         
-        print(f"Accuracy: {accuracy:.4f}")
-        print(f"F1 Score: {f1:.4f}")
-        print(classification_report(y_true=all_labels, y_pred=all_generated_intents, digits=4))
+        average_cer = total_cer / len(all_generated_transcripts)
+        
+        # 计算Keyword Error Rate
+        keyword_error_count = 0
+        total_keyword_samples = 0
+        if all_keywords:
+            for i in range(len(all_generated_transcripts)):
+                if all_keywords[i]:  # 只有当关键词存在时才计算
+                    total_keyword_samples += 1
+                    if all_keywords[i] not in all_generated_transcripts[i]:
+                        keyword_error_count += 1
+            
+            keyword_error_rate = keyword_error_count / total_keyword_samples if total_keyword_samples > 0 else 0
+        else:
+            keyword_error_rate = None
+        
+        print(f"CER: {average_cer:.4f}")
+        if keyword_error_rate is not None:
+            print(f"Keyword Error Rate: {keyword_error_rate:.4f}")
+        
+        # 打印一些错误识别的样本
+        print("\n错误识别的样本:")
+        error_count = 0
+        for i in range(len(all_generated_transcripts)):
+            if all_keywords and i < len(all_keywords) and all_keywords[i] and all_keywords[i] not in all_generated_transcripts[i]:
+                print(f"原始文本: {all_ground_truth[i]}")
+                print(f"识别结果: {all_generated_transcripts[i]}")
+                if all_keywords[i]:
+                    print(f"关键词: {all_keywords[i]}")
+                print("---")
+                error_count += 1
+                if error_count >= 10:  # 只显示前10个错误样本
+                    break
         
         if save_path:
-            with open(save_path, 'w') as f:
+            with open(save_path, 'w', encoding='utf-8') as f:
                 save_dict = {
-                    'all_generated_intents': all_generated_intents,
-                    'all_labels': all_labels,
-                    'accuracy': accuracy,
-                    'f1': f1,
-                    'report': report,
+                    'all_generated_transcripts': all_generated_transcripts,
+                    'all_ground_truth': all_ground_truth,
+                    'all_keywords': all_keywords,
+                    'cer': average_cer,
+                    'keyword_error_rate': keyword_error_rate,
+                    'total_samples': len(all_generated_transcripts),
+                    'keyword_error_count': keyword_error_count,
+                    'total_keyword_samples': total_keyword_samples,
                 }
-                json.dump(save_dict, f)
+                json.dump(save_dict, f, ensure_ascii=False, indent=2)
 
-        return accuracy, f1
+        return average_cer, keyword_error_rate
     return None, None
 
 
@@ -442,7 +507,7 @@ def main():
         help="Number of samples to use for evaluation",
     )
     parser.add_argument('--use_flash_attention', action='store_true', help='Use Flash Attention')
-    parser.add_argument('--output_dir', type=str, default='intent/model/', help='Output directory')
+    parser.add_argument('--output_dir', type=str, default='asr/model/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument(
         '--batch_size_per_gpu',
@@ -530,7 +595,6 @@ def main():
     if accelerator.is_main_process:
         print(f"Train dataset size: {len(train_dataset)}")
         print(f"Eval dataset size: {len(eval_dataset)}")
-        print(f"Intent categories: {train_dataset.intent_categories}")
 
     # 计算GPU数量并进行批处理大小断言
     num_gpus = accelerator.num_processes
@@ -583,7 +647,7 @@ def main():
     out_path = Path(training_args.output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    accuracy, f1 = evaluate(
+    cer_before, keyword_error_rate_before = evaluate(
         model,
         processor,
         eval_dataset,
@@ -592,8 +656,9 @@ def main():
         eval_batch_size=args.batch_size_per_gpu,
     )
     if accelerator.is_main_process:
-        print(f'Accuracy before finetuning: {accuracy}')
-        print(f'F1 Score before finetuning: {f1}')
+        print(f'CER before finetuning: {cer_before}')
+        if keyword_error_rate_before is not None:
+            print(f'Keyword Error Rate before finetuning: {keyword_error_rate_before}')
 
     # 创建Trainer实例并开始训练
     trainer = Trainer(
@@ -625,7 +690,7 @@ def main():
     ).to('cuda')
 
     # 进行微调后的评估
-    accuracy, f1 = evaluate(
+    cer_after, keyword_error_rate_after = evaluate(
         model,
         processor,
         eval_dataset,
@@ -634,8 +699,9 @@ def main():
         eval_batch_size=args.batch_size_per_gpu,
     )
     if accelerator.is_main_process:
-        print(f'Accuracy after finetuning: {accuracy}')
-        print(f'F1 Score after finetuning: {f1}')
+        print(f'CER after finetuning: {cer_after}')
+        if keyword_error_rate_after is not None:
+            print(f'Keyword Error Rate after finetuning: {keyword_error_rate_after}')
     
     # 清理临时文件
     if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:

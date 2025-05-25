@@ -9,7 +9,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_test/data/video/audios/04e633a2b571a214974fa4adba126339_59c89bf53327930c46000010.wav,我想看小跳蛙,小跳蛙,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/bb79fd5be898e62008183c38859e24a5_59b11e12332793091c000003.wav,小公主苏菲亚第五集,小公主苏菲亚,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/b4651f8b0e677e0c2d6c0f2df28fc8aa_59ba1c753327930c4b0005a3.wav,聪明的一休第十集,聪明的一休,video,video
-/home/v2129375/dataset/catslu_test/data/video/audios/df0ccdc9c5b6e94500c9b6d26dc52e57_59c3c27733279311af000033.wav,我要看东京很热,东京很热,video,video
+/home/v2129375/dataset/catslu_test/data/video/audios/df0ccdc9c5b6e94500c9b6d26dc52e57_59c3c27733279311af000033.wav,我要看东京很热,东京很热,video,city
 /home/v2129375/dataset/catslu_test/data/video/audios/808ac8e239311ff460f97bd5592aa107_59cb931b8827ad007500000e.wav,小猪佩奇,小猪佩奇,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/df86737f7c663e7107f3324a21707928_59aa77078827ad0075000060.wav,给我放一个灰姑娘第三季,灰姑娘,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/e7189387967653feb6c386353c8fdcdc_59cb8ddf3327930c4d000026.wav,小猪佩奇动画片,小猪佩奇,video,video
@@ -56,7 +56,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_traindev/data/video/audios/b5dc9c748ac5b43344f9c0210b5de984_59abc1803327930296000014.wav,播放艾利之书,艾利之书,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/43bf41f5cd8a0a2fe43beb60b372623d_59b7726a3327930c4900000d.wav,我要看千与千寻,千与千寻,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/a1849fc9480453e1fbf453ee072be83a_59c4e5093327930c43000009.wav,我们想看开心儿歌数鸭子,开心儿歌数鸭子,video,video
-/home/v2129375/dataset/catslu_traindev/data/video/audios/2d13e6866479e87dc8fce225a590c2fb_59b0d9e63327930c2a000011.wav,小乐播放宝宝巴士,宝宝巴士,video,music
+/home/v2129375/dataset/catslu_traindev/data/video/audios/2d13e6866479e87dc8fce225a590c2fb_59b0d9e63327930c2a000011.wav,小乐播放宝宝巴士,宝宝巴士,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/33d032cb675f50b7d44655dee52715eb_59a8cd58332793091f000035.wav,我想看黄梅戏,黄梅戏,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/5eb603bbc0edd4c441f14db4fa7deeca_59c618cd3327930c3100001a.wav,小乐我想看芭比娃娃梦想屋,芭比娃娃梦想屋,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/20dc59c663ec822e6493b61834e0194a_59ccd4353327930c34000018.wav,我要看海绵宝宝动画片中文版,海绵宝宝,video,video
@@ -76,7 +76,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_test/data/video/audios/7330c615f547a6978d2e6b3fb1e0cd11_59cb112b3327930c4b000097.wav,播放世上只有妈妈好,世上只有妈妈好,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/e52e39f94cba637494314c311184733d_59c238583327930c50000015.wav,嗯我想看你的脸,你的脸,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/f2956884c1d74cc01fabf9f1fb924e72_59c767353327930c4300017e.wav,我要看小猪佩奇,小猪佩奇,video,video
-/home/v2129375/dataset/catslu_test/data/video/audios/fab57d4022edfd34df12395aee0b5717_59b61f2a3327930c47000034.wav,放妮妮猫儿歌上学歌,妮妮猫儿歌上学歌,video,music
+/home/v2129375/dataset/catslu_test/data/video/audios/fab57d4022edfd34df12395aee0b5717_59b61f2a3327930c47000034.wav,放妮妮猫儿歌上学歌,妮妮猫儿歌上学歌,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/8c5bcb53cde431e380cc0d468f5f2f41_59aa93393327930c4400001b.wav,我要看汪汪队立大功,汪汪队立大功,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/bd5ee80efd4be34011fc38f3e28e250b_59c85a973327930c4400006f.wav,放数鸭子,数鸭子,video,video
 /home/v2129375/dataset/catslu_test/data/video/audios/0a0eb4caaa5240a30488febdefad2f66_59ad29e93327930257000020.wav,播放汪汪队立大功,汪汪队立大功,video,video
@@ -166,7 +166,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_traindev/data/music/audios/4a8b671b1d7a5b6bb0e8205dd00e0c1a_59b0991a332793026b000127.wav,我想听韩红的青藏高原,韩红,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/b85314f6140ab0bd5a1f1b33969bd564_59cf911b8827ad007c000076.wav,播放韩红的青藏高原,韩红,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/be4335ff9994f823ddb480f3b7e92e45_59b9250590ee6d0219000023.wav,唱一首郑秀文的眉飞色舞,郑秀文,music,music
-/home/v2129375/dataset/catslu_traindev/data/music/audios/f3142a411ec07d32ff3e4da864966ee9_59bf82ab3327930dba000155.wav,唱小蓓蕾儿儿歌,小蓓蕾,music,music
+/home/v2129375/dataset/catslu_traindev/data/music/audios/f3142a411ec07d32ff3e4da864966ee9_59bf82ab3327930dba000155.wav,唱小蓓蕾儿儿歌,小蓓蕾,music,video
 /home/v2129375/dataset/catslu_traindev/data/music/audios/25f2abee16ea9307fc276e9539b9879c_59c1e4ce3327935e0a00002c.wav,给我点一首张学友的吻别,张学友,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/fb385234bb79593174d06551a7312a90_59bef7443327930257000010.wav,点首歌爱我你就抱抱我林妙可的,林妙可,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/32b9261dc5883b11a03ab751627d5858_58a5366358a5366358a53663.wav,小虎队吻别,小虎队,music,video
@@ -189,10 +189,10 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_traindev/data/music/audios/098a80bb0dd33ecd23005c0b04f34255_59aba79c8827ad007500000e.wav,听张杰唱的剑心,张杰,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/10ac64f2157b533be27abdd1e4aafa4e_0000023e8b6879003300000c.wav,祁隆的歌爰的世界只有你,祁隆,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/152e8aabc1b5366210f4fb7e0dd7c724_59cdff923327930299000006.wav,播放周杰伦的歌曲,周杰伦,music,music
-/home/v2129375/dataset/catslu_traindev/data/music/audios/3f01d646e2eb19bb00b3762c08653bb1_59ba6bf83327930266000025.wav,高迪,高迪,music,video
+/home/v2129375/dataset/catslu_traindev/data/music/audios/3f01d646e2eb19bb00b3762c08653bb1_59ba6bf83327930266000025.wav,高迪,高迪,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/9a0fdd5a300384d6814ea978fdc81b55_59c626143327930262000033.wav,唱一首刘芳的醉清风,刘芳,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/08c5f3f712f6b096648b4cfd0f596cdb_59bb2a2e8b68790039000006.wav,听邓紫棋的歌,邓紫棋,music,music
-/home/v2129375/dataset/catslu_traindev/data/music/audios/edcc1b7919f56fec01c5dd42630662a1_59ab52ad8827ad00a50001a0.wav,播放好妹妹乐队歌曲,好妹妹乐队,music,music
+/home/v2129375/dataset/catslu_traindev/data/music/audios/edcc1b7919f56fec01c5dd42630662a1_59ab52ad8827ad00a50001a0.wav,播放好妹妹乐队歌曲,好妹妹乐队,music,video
 /home/v2129375/dataset/catslu_traindev/data/music/audios/1f9c807db95d0de059f117382b2d07b7_59a9430a3327930c33000016.wav,唱一首赵雷的成都,赵雷,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/359ecd03845c99b0804e33f1eace53d2_59ab60f433279302580000be.wav,张宇的一言难尽,张宇,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/1e634d2cff7d6d43db1d9cb216157065_59ac9f5a33279302a800000a.wav,崔健的歌,崔健,music,music
@@ -218,7 +218,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_traindev/data/music/audios/e7d213d0acc5af937eca7dd0239d4a8a_59be59798827ad007c00006b.wav,播放邓丽君的歌,邓丽君,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/f06c1650cdb7c846e6b4b4090edbbbbf_59bc825a90ee6d0224000004.wav,播放一首蔡健雅的歌,蔡健雅,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/a61e0f19d635688de899b070aa312b77_59cfb37490ee6d021900000b.wav,阿兰三生石三生路,阿兰,music,music
-/home/v2129375/dataset/catslu_traindev/data/music/audios/801b1fa6a4810cbf0e814d0c48c363cc_59b252e633279302a6000030.wav,播放小可音乐,小可,music,music
+/home/v2129375/dataset/catslu_traindev/data/music/audios/801b1fa6a4810cbf0e814d0c48c363cc_59b252e633279302a6000030.wav,播放小可音乐,小可,music,video
 /home/v2129375/dataset/catslu_traindev/data/music/audios/ad20ee28814a625f33dfb162f0e155e0_59b75c75332793029a000085.wav,汪峰甘心情愿,汪峰,music,music
 /home/v2129375/dataset/catslu_test/data/music/audios/6abd7b645cc5074b66f89c00d00a9d5b_59aa6cce332793026f000161.wav,来一首周杰伦的给给我一首歌的时间,周杰伦,music,music
 /home/v2129375/dataset/catslu_traindev/data/music/audios/359ecd03845c99b0804e33f1eace53d2_59ab610933279302580000c9.wav,张宇的一言难尽,张宇,music,music
@@ -352,7 +352,7 @@ path,manual_transcript,keyword,source,predict
 /home/v2129375/dataset/catslu_traindev/data/weather/audios/bb113f3381e0f5757e0ea215c064faa0_59c9bbba3327930294000089.wav,深圳今天的天气,深圳,city,city
 /home/v2129375/dataset/catslu_test/data/weather/audios/d2fe20f2c0363f20e5b09e7b2c3122b6_59af9d3e90ee6d021c000003.wav,深圳天气怎么样,深圳,city,city
 /home/v2129375/dataset/catslu_test/data/weather/audios/53abd84a20074d94c4b91a6a4b33a4f1_59a8a9e73327930c4a0001eb.wav,上海今天什么天气啊,上海,city,city
-/home/v2129375/dataset/catslu_test/data/weather/audios/1cc6fdfab199f668b03f9c54b1a82feb_59cd80578827ad007500002c.wav,珠海,珠海,city,video
+/home/v2129375/dataset/catslu_test/data/weather/audios/1cc6fdfab199f668b03f9c54b1a82feb_59cd80578827ad007500002c.wav,珠海,珠海,city,city
 /home/v2129375/dataset/catslu_test/data/weather/audios/cdb9ebce145b0ccb3d24e65ed9af6389_59c5d56c90ee6d0219000001.wav,今天深圳天气怎么样,深圳,city,city
 /home/v2129375/dataset/catslu_traindev/data/weather/audios/cf294c41aa6b1d7e8b6c23d49bc357a0_59bc88468827ad007c000018.wav,西安今天的天气怎么样,西安,city,city
 /home/v2129375/dataset/catslu_test/data/weather/audios/b35c1a2d236c5487f67a3f9a54fcf770_59cc307a8827ad00a500009b.wav,广元今天的天气,广元,city,city
