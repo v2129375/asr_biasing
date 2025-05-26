@@ -43,7 +43,7 @@ ANSWER_SUFFIX = "<|end|><|endoftext|>"
 _IGNORE_INDEX = -100
 # 训练和评估数据集大小限制
 _TRAIN_SIZE = None  # 使用全部训练数据
-_EVAL_SIZE = 200
+_EVAL_SIZE = None
 
 
 class MultipleTokenBatchStoppingCriteria(StoppingCriteria):
@@ -773,9 +773,13 @@ def main():
         eval_data = full_dataset.iloc[eval_indices].reset_index(drop=True)
         train_data = full_dataset.iloc[train_indices].reset_index(drop=True)
         
-        # 将划分后的数据保存为临时文件
-        eval_path = os.path.join(os.path.dirname(args.catslu_data_path), "eval_temp.csv")
-        train_path = os.path.join(os.path.dirname(args.catslu_data_path), "train_temp.csv")
+        # 创建asr/exp目录（如果不存在）
+        exp_dir = os.path.join("asr", "exp")
+        os.makedirs(exp_dir, exist_ok=True)
+        
+        # 将划分后的数据保存到asr/exp目录下的临时文件
+        eval_path = os.path.join(exp_dir, "eval_temp.csv")
+        train_path = os.path.join(exp_dir, "train_temp.csv")
         
         eval_data.to_csv(eval_path, index=False)
         train_data.to_csv(train_path, index=False)
