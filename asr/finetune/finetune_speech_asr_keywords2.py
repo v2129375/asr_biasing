@@ -33,10 +33,15 @@ from transformers import (
 )
 
 
-# 基础任务指令
-BASE_INSTRUCTION = "Transcribe the audio clip into text."
+# 是否使用关键词指令
+USE_KEYWORDS = False  # 设为True使用关键词指令，False使用简单指令
+
+# 基础简单指令
+SIMPLE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
-KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
+KEYWORD_INSTRUCTION = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
+# 选择使用哪个指令
+BASE_INSTRUCTION = KEYWORD_INSTRUCTION if USE_KEYWORDS else SIMPLE_INSTRUCTION
 # 答案后缀标记，用于标识生成结束
 ANSWER_SUFFIX = "<|end|><|endoftext|>"
 # 标签忽略索引值，用于损失计算中忽略某些位置
@@ -160,14 +165,18 @@ class CatsluKeywordsDataset(Dataset):
 
     def _build_instruction_with_keywords(self, source):
         """根据领域构建包含关键词的指令"""
-        domain_keywords = self._get_domain_keywords(source)
-        
-        if domain_keywords:
-            # 使用该领域的全部关键词
-            keywords_str = ', '.join(domain_keywords)
-            return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=source, keywords=keywords_str)
+        if USE_KEYWORDS:
+            domain_keywords = self._get_domain_keywords(source)
+            if domain_keywords:
+                # 使用该领域的全部关键词
+                keywords_str = ', '.join(domain_keywords)
+                return KEYWORD_INSTRUCTION.format(intent=source, keywords=keywords_str)
+            else:
+                # 即使启用了关键词但没有找到关键词，仍然使用关键词模板，只是关键词为空
+                return KEYWORD_INSTRUCTION.format(intent=source, keywords="")
         else:
-            return BASE_INSTRUCTION
+            # 不使用关键词时直接返回简单指令
+            return SIMPLE_INSTRUCTION
 
     def __len__(self):
         return len(self.data)
@@ -700,14 +709,8 @@ def main():
         default="data/catslu",
         help="Directory containing keyword files (keyword_video.txt, keyword_music.txt, keyword_city.txt)",
     )
-    parser.add_argument(
-        "--eval_size",
-        type=int,
-        default=200,
-        help="Number of samples to use for evaluation",
-    )
     parser.add_argument('--use_flash_attention', action='store_true', help='Use Flash Attention')
-    parser.add_argument('--output_dir', type=str, default='asr/model/', help='Output directory')
+    parser.add_argument('--output_dir', type=str, default='asr/model/new/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument(
         '--batch_size_per_gpu',
@@ -723,10 +726,6 @@ def main():
     parser.add_argument('--no-tqdm', dest='tqdm', action='store_false', help='Disable tqdm')
     args = parser.parse_args()
     
-    # 设置评估数据集大小
-    global _EVAL_SIZE
-    _EVAL_SIZE = args.eval_size
-
     # 初始化加速器，用于分布式训练
     accelerator = Accelerator()
 
@@ -764,9 +763,12 @@ def main():
     # 读取完整数据集
     full_dataset = pd.read_csv(args.catslu_data_path)
     
+    # 设置标志，确定是否执行评估
+    do_evaluation = _EVAL_SIZE is not None
+    
     # 划分训练集和评估集
     total_samples = len(full_dataset)
-    if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:
+    if do_evaluation and _EVAL_SIZE < total_samples:
         eval_indices = np.random.choice(total_samples, _EVAL_SIZE, replace=False)
         train_indices = np.array([i for i in range(total_samples) if i not in eval_indices])
         
@@ -785,18 +787,21 @@ def main():
         train_data.to_csv(train_path, index=False)
     else:
         # 如果不需要划分或评估集大小过大，则使用相同的数据集
-        eval_path = args.catslu_data_path
         train_path = args.catslu_data_path
-
-    # 创建评估数据集
-    eval_dataset = CatsluKeywordsDataset(
-        processor,
-        data_path=eval_path,
-        keywords_dir=args.keywords_dir,
-        split="eval",
-        rank=rank,
-        world_size=world_size
-    )
+        if do_evaluation:
+            eval_path = args.catslu_data_path
+    
+    # 只有在需要评估时才创建评估数据集
+    if do_evaluation:
+        # 创建评估数据集
+        eval_dataset = CatsluKeywordsDataset(
+            processor,
+            data_path=eval_path,
+            keywords_dir=args.keywords_dir,
+            split="eval",
+            rank=rank,
+            world_size=world_size
+        )
     
     # 创建训练数据集
     train_dataset = CatsluKeywordsDataset(
@@ -811,7 +816,10 @@ def main():
     # 输出数据集统计信息
     if accelerator.is_main_process:
         print(f"Train dataset size: {len(train_dataset)}")
-        print(f"Eval dataset size: {len(eval_dataset)}")
+        if do_evaluation:
+            print(f"Eval dataset size: {len(eval_dataset)}")
+        else:
+            print("不执行验证")
         print(f"Keywords directory: {args.keywords_dir}")
 
     # 计算GPU数量并进行批处理大小断言
@@ -872,22 +880,25 @@ def main():
         dataloader_persistent_workers=False,  # 在多GPU环境下关闭持久化worker
     )
 
-    # 微调前先评估
+    # 创建输出目录
     out_path = Path(training_args.output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    cer_before, keyword_error_rate_before = evaluate(
-        model,
-        processor,
-        eval_dataset,
-        save_path=out_path / 'eval_before.json',
-        disable_tqdm=not args.tqdm,
-        eval_batch_size=args.batch_size_per_gpu,
-    )
-    if accelerator.is_main_process:
-        print(f'CER before finetuning: {cer_before}')
-        if keyword_error_rate_before is not None:
-            print(f'Keyword Error Rate before finetuning: {keyword_error_rate_before}')
+    # 只有在需要评估时才执行评估
+    if do_evaluation:
+        # 微调前先评估
+        cer_before, keyword_error_rate_before = evaluate(
+            model,
+            processor,
+            eval_dataset,
+            save_path=out_path / 'eval_before.json',
+            disable_tqdm=not args.tqdm,
+            eval_batch_size=args.batch_size_per_gpu,
+        )
+        if accelerator.is_main_process:
+            print(f'CER before finetuning: {cer_before}')
+            if keyword_error_rate_before is not None:
+                print(f'Keyword Error Rate before finetuning: {keyword_error_rate_before}')
 
     # 创建Trainer实例并开始训练
     trainer = Trainer(
@@ -903,65 +914,71 @@ def main():
         processor.save_pretrained(training_args.output_dir)
     accelerator.wait_for_everyone()
 
-    # 微调后评估（加载保存的检查点）
-    # 首先尝试清理GPU内存
-    del model
-    del trainer
-    __import__('gc').collect()
-    torch.cuda.empty_cache()
+    # 只有在需要评估时才执行评估
+    if do_evaluation:
+        # 微调后评估（加载保存的检查点）
+        # 首先尝试清理GPU内存
+        del model
+        del trainer
+        __import__('gc').collect()
+        torch.cuda.empty_cache()
 
-    # 重新加载模型用于推理，支持多GPU
-    print("重新加载模型进行推理...")
-    if torch.cuda.device_count() > 1:
-        # 多GPU推理
-        print(f"使用 {torch.cuda.device_count()} 个GPU进行推理")
-        model = AutoModelForCausalLM.from_pretrained(
-            training_args.output_dir,
-            torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
-            trust_remote_code=True,
-            _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
-            device_map="auto",
-            max_memory={i: "12GiB" for i in range(torch.cuda.device_count())},
-        )
-    elif torch.cuda.device_count() == 1:
-        # 单GPU推理
-        print("使用单GPU进行推理")
-        model = AutoModelForCausalLM.from_pretrained(
-            training_args.output_dir,
-            torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
-            trust_remote_code=True,
-            _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
-            device_map="cuda:0",
-        )
-    else:
-        # CPU推理
-        print("使用CPU进行推理")
-        model = AutoModelForCausalLM.from_pretrained(
-            training_args.output_dir,
-            torch_dtype=torch.float32,
-            trust_remote_code=True,
-            _attn_implementation='sdpa',
-            device_map="cpu",
-        )
+        # 重新加载模型用于推理，支持多GPU
+        print("重新加载模型进行推理...")
+        if torch.cuda.device_count() > 1:
+            # 多GPU推理
+            print(f"使用 {torch.cuda.device_count()} 个GPU进行推理")
+            model = AutoModelForCausalLM.from_pretrained(
+                training_args.output_dir,
+                torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
+                trust_remote_code=True,
+                _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
+                device_map="auto",
+                max_memory={i: "12GiB" for i in range(torch.cuda.device_count())},
+            )
+        elif torch.cuda.device_count() == 1:
+            # 单GPU推理
+            print("使用单GPU进行推理")
+            model = AutoModelForCausalLM.from_pretrained(
+                training_args.output_dir,
+                torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
+                trust_remote_code=True,
+                _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
+                device_map="cuda:0",
+            )
+        else:
+            # CPU推理
+            print("使用CPU进行推理")
+            model = AutoModelForCausalLM.from_pretrained(
+                training_args.output_dir,
+                torch_dtype=torch.float32,
+                trust_remote_code=True,
+                _attn_implementation='sdpa',
+                device_map="cpu",
+            )
 
-    # 进行微调后的评估
-    cer_after, keyword_error_rate_after = evaluate(
-        model,
-        processor,
-        eval_dataset,
-        save_path=out_path / 'eval_after.json',
-        disable_tqdm=not args.tqdm,
-        eval_batch_size=args.batch_size_per_gpu,
-    )
-    if accelerator.is_main_process:
-        print(f'CER after finetuning: {cer_after}')
-        if keyword_error_rate_after is not None:
-            print(f'Keyword Error Rate after finetuning: {keyword_error_rate_after}')
+        # 进行微调后的评估
+        cer_after, keyword_error_rate_after = evaluate(
+            model,
+            processor,
+            eval_dataset,
+            save_path=out_path / 'eval_after.json',
+            disable_tqdm=not args.tqdm,
+            eval_batch_size=args.batch_size_per_gpu,
+        )
+        if accelerator.is_main_process:
+            print(f'CER after finetuning: {cer_after}')
+            if keyword_error_rate_after is not None:
+                print(f'Keyword Error Rate after finetuning: {keyword_error_rate_after}')
     
-    # 清理临时文件
-    if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:
-        if os.path.exists(eval_path) and eval_path != args.catslu_data_path:
-            os.remove(eval_path)
+        # 清理临时文件
+        if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:
+            if os.path.exists(eval_path) and eval_path != args.catslu_data_path:
+                os.remove(eval_path)
+            if os.path.exists(train_path) and train_path != args.catslu_data_path:
+                os.remove(train_path)
+    else:
+        # 如果不执行评估，但有创建临时训练文件，也需要清理
         if os.path.exists(train_path) and train_path != args.catslu_data_path:
             os.remove(train_path)
 

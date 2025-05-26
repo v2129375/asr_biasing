@@ -43,7 +43,7 @@ ANSWER_SUFFIX = "<|end|><|endoftext|>"
 _IGNORE_INDEX = -100
 # 训练和评估数据集大小限制
 _TRAIN_SIZE = None  # 使用全部训练数据
-_EVAL_SIZE = 200
+_EVAL_SIZE = 1
 
 
 class MultipleTokenBatchStoppingCriteria(StoppingCriteria):
@@ -635,12 +635,7 @@ def main():
         default="data/catslu",
         help="Directory containing keyword files (keyword_video.txt, keyword_music.txt, keyword_city.txt)",
     )
-    parser.add_argument(
-        "--eval_size",
-        type=int,
-        default=200,
-        help="Number of samples to use for evaluation",
-    )
+
     parser.add_argument('--use_flash_attention', action='store_true', help='Use Flash Attention')
     parser.add_argument('--output_dir', type=str, default='asr/model/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
@@ -657,10 +652,7 @@ def main():
     parser.add_argument('--wd', type=float, default=0.01, help='Weight decay')
     parser.add_argument('--no-tqdm', dest='tqdm', action='store_false', help='Disable tqdm')
     args = parser.parse_args()
-    
-    # 设置评估数据集大小
-    global _EVAL_SIZE
-    _EVAL_SIZE = args.eval_size
+
 
     # 初始化加速器，用于分布式训练
     accelerator = Accelerator()
