@@ -371,17 +371,51 @@ def catslu_collate_fn(batch):
     return batch_feature
 
 
-def create_model(model_name_or_path, use_flash_attention=False):
+def create_model(model_name_or_path, use_flash_attention=False, device_map="auto"):
     """
-    创建因果语言模型，可选择使用flash attention加速
+    创建因果语言模型，支持多GPU并行和自动设备映射
     """
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name_or_path,
-        torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
-        _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
-        trust_remote_code=True,
-    ).to('cuda')
-
+    # 检测可用的GPU数量
+    num_gpus = torch.cuda.device_count()
+    print(f"检测到 {num_gpus} 个GPU")
+    
+    if num_gpus == 0:
+        # 如果没有GPU，使用CPU
+        print("未检测到GPU，使用CPU运行")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            torch_dtype=torch.float32,
+            _attn_implementation='sdpa',
+            trust_remote_code=True,
+            device_map="cpu",
+        )
+    elif num_gpus == 1:
+        # 单GPU情况
+        print("使用单GPU运行")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
+            _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
+            trust_remote_code=True,
+            device_map="cuda:0",
+        )
+    else:
+        # 多GPU情况，使用模型并行
+        print(f"使用多GPU运行，将模型分布到 {num_gpus} 个GPU上")
+        
+        # 设置device_map为auto让模型自动分配到多个GPU
+        if device_map == "auto":
+            device_map = "auto"
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name_or_path,
+            torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
+            _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
+            trust_remote_code=True,
+            device_map=device_map,
+            max_memory={i: "12GiB" for i in range(num_gpus)},  # 为每个GPU设置最大内存限制
+        )
+    
     return model
 
 
@@ -446,7 +480,28 @@ def evaluate(
     # 定义停止标记
     stop_tokens = ["<|end|>", processor.tokenizer.eos_token]
     stop_tokens_ids = processor.tokenizer(stop_tokens, add_special_tokens=False, padding="longest", return_tensors="pt")["input_ids"]
-    stop_tokens_ids = stop_tokens_ids.to(f'cuda:{local_rank}')
+    
+    # 智能设备分配
+    num_gpus = torch.cuda.device_count()
+    if num_gpus == 0:
+        # CPU模式
+        device = "cpu"
+        stop_tokens_ids = stop_tokens_ids.to(device)
+    elif num_gpus == 1:
+        # 单GPU模式
+        device = f'cuda:{local_rank}'
+        stop_tokens_ids = stop_tokens_ids.to(device)
+    else:
+        # 多GPU模式，使用模型的第一个设备
+        # 获取模型的设备信息
+        if hasattr(model, 'hf_device_map'):
+            # 如果模型使用了device_map，获取第一个参数的设备
+            first_device = next(iter(model.hf_device_map.values()))
+            device = f'cuda:{first_device}' if isinstance(first_device, int) else str(first_device)
+        else:
+            # 回退到第一个参数的设备
+            device = next(model.parameters()).device
+        stop_tokens_ids = stop_tokens_ids.to(device)
 
     # 遍历评估数据集
     for inputs in tqdm(
@@ -455,7 +510,17 @@ def evaluate(
         # 设置停止条件
         stopping_criteria=StoppingCriteriaList([MultipleTokenBatchStoppingCriteria(stop_tokens_ids, batch_size=inputs.input_ids.size(0))])
         inputs_to_model = {k: v for k, v in inputs.items() if k not in ['keywords', 'manual_transcripts', 'sources']}
-        inputs_to_model = {k: v.to(f'cuda:{local_rank}') if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
+        
+        # 智能设备分配
+        if num_gpus == 0:
+            # CPU模式
+            inputs_to_model = {k: v.to("cpu") if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
+        elif num_gpus == 1:
+            # 单GPU模式
+            inputs_to_model = {k: v.to(f'cuda:{local_rank}') if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
+        else:
+            # 多GPU模式，将输入数据移动到模型的第一个设备
+            inputs_to_model = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
         
         # 生成ASR转录
         generated_ids = model.generate(
@@ -672,10 +737,11 @@ def main():
             args.model_name_or_path,
             trust_remote_code=True,
         )
-        # 创建模型
+        # 创建模型，支持多GPU
         model = create_model(
             args.model_name_or_path,
             use_flash_attention=args.use_flash_attention,
+            device_map="auto" if torch.cuda.device_count() > 1 else None,
         )
 
     # 设置模型使用语音适配器
@@ -684,6 +750,16 @@ def main():
     # 获取分布式训练的排名和总进程数
     rank = int(os.environ.get('RANK', 0))
     world_size = int(os.environ.get('WORLD_SIZE', 1))
+    
+    # 检测GPU数量并调整训练策略
+    num_gpus = torch.cuda.device_count()
+    print(f'检测到 {num_gpus} 个GPU，当前训练进程数: {accelerator.num_processes}')
+    
+    # 如果是多GPU环境，但没有使用分布式训练，建议使用模型并行
+    if num_gpus > 1 and accelerator.num_processes == 1:
+        print("检测到多GPU环境，建议使用以下命令启动分布式训练:")
+        print(f"accelerate launch --multi_gpu --num_processes={num_gpus} {' '.join(__import__('sys').argv)}")
+        print("当前将使用模型并行模式运行...")
     
     # 读取完整数据集
     full_dataset = pd.read_csv(args.catslu_data_path)
@@ -735,12 +811,18 @@ def main():
         print(f"Keywords directory: {args.keywords_dir}")
 
     # 计算GPU数量并进行批处理大小断言
-    num_gpus = accelerator.num_processes
-    print(f'training on {num_gpus} GPUs')
-    assert (
-        args.batch_size % (num_gpus * args.batch_size_per_gpu) == 0
-    ), 'Batch size must be divisible by the number of GPUs'
-    gradient_accumulation_steps = args.batch_size // (num_gpus * args.batch_size_per_gpu)
+    effective_num_gpus = accelerator.num_processes
+    print(f'有效训练GPU数量: {effective_num_gpus}')
+    
+    # 调整批处理大小以适应GPU数量
+    if args.batch_size % (effective_num_gpus * args.batch_size_per_gpu) != 0:
+        print(f"警告: 批处理大小 {args.batch_size} 不能被 (GPU数量 {effective_num_gpus} * 每GPU批处理大小 {args.batch_size_per_gpu}) 整除")
+        # 自动调整批处理大小
+        args.batch_size = effective_num_gpus * args.batch_size_per_gpu
+        print(f"自动调整批处理大小为: {args.batch_size}")
+    
+    gradient_accumulation_steps = args.batch_size // (effective_num_gpus * args.batch_size_per_gpu)
+    print(f'梯度累积步数: {gradient_accumulation_steps}')
 
     # 根据是否使用flash attention选择精度
     if args.use_flash_attention:
@@ -750,7 +832,7 @@ def main():
         fp16 = True
         bf16 = False
 
-    # 设置训练参数
+    # 设置训练参数，针对多GPU优化
     training_args = TrainingArguments(
         num_train_epochs=args.num_train_epochs,
         per_device_train_batch_size=args.batch_size_per_gpu,
@@ -779,6 +861,11 @@ def main():
         disable_tqdm=not args.tqdm,
         dataloader_num_workers=1,
         ddp_find_unused_parameters=True,  # 用于未使用的SigLIP层
+        # 多GPU优化参数
+        dataloader_pin_memory=True,
+        group_by_length=False,  # 关闭长度分组以避免音频长度问题
+        # 内存优化
+        dataloader_persistent_workers=False,  # 在多GPU环境下关闭持久化worker
     )
 
     # 微调前先评估
@@ -819,13 +906,39 @@ def main():
     __import__('gc').collect()
     torch.cuda.empty_cache()
 
-    # 重新加载模型用于推理
-    model = AutoModelForCausalLM.from_pretrained(
-        training_args.output_dir,
-        torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
-        trust_remote_code=True,
-        _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
-    ).to('cuda')
+    # 重新加载模型用于推理，支持多GPU
+    print("重新加载模型进行推理...")
+    if torch.cuda.device_count() > 1:
+        # 多GPU推理
+        print(f"使用 {torch.cuda.device_count()} 个GPU进行推理")
+        model = AutoModelForCausalLM.from_pretrained(
+            training_args.output_dir,
+            torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
+            trust_remote_code=True,
+            _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
+            device_map="auto",
+            max_memory={i: "12GiB" for i in range(torch.cuda.device_count())},
+        )
+    elif torch.cuda.device_count() == 1:
+        # 单GPU推理
+        print("使用单GPU进行推理")
+        model = AutoModelForCausalLM.from_pretrained(
+            training_args.output_dir,
+            torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
+            trust_remote_code=True,
+            _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
+            device_map="cuda:0",
+        )
+    else:
+        # CPU推理
+        print("使用CPU进行推理")
+        model = AutoModelForCausalLM.from_pretrained(
+            training_args.output_dir,
+            torch_dtype=torch.float32,
+            trust_remote_code=True,
+            _attn_implementation='sdpa',
+            device_map="cpu",
+        )
 
     # 进行微调后的评估
     cer_after, keyword_error_rate_after = evaluate(
