@@ -29,35 +29,25 @@ from transformers import (
     TrainingArguments,
     StoppingCriteria,
     StoppingCriteriaList,
-    set_seed,
 )
-import copy
 
+# 全局参数设置
+MODEL_NAME_OR_PATH = 'microsoft/Phi-4-multimodal-instruct'
+CATSLU_DATA_PATH = "data/catslu/train.csv"
+KEYWORDS_DIR = "data/catslu"
+USE_FLASH_ATTENTION = True
+OUTPUT_DIR = 'asr/model/'
+BATCH_SIZE = 2
+BATCH_SIZE_PER_GPU = 1
+NUM_TRAIN_EPOCHS = 1
+LEARNING_RATE = 4.0e-5
+WD = 0.01
+TQDM_ENABLED = True
 
-# 参数设置 - 所有参数都在这里设置
-MODEL_NAME_OR_PATH = 'microsoft/Phi-4-multimodal-instruct'  # 模型名称或路径
-CATSLU_DATA_PATH = "data/catslu/train.csv"  # CATSLU数据集CSV文件路径
-KEYWORDS_DIR = "data/catslu"  # 关键词文件目录路径
-USE_FLASH_ATTENTION = False  # 是否使用Flash Attention
-OUTPUT_DIR = 'asr/model/new/'  # 输出目录
-BATCH_SIZE = 1  # 批处理大小
-BATCH_SIZE_PER_GPU = 1  # 每个GPU的批处理大小
-NUM_TRAIN_EPOCHS = 1  # 训练轮数
-LEARNING_RATE = 4.0e-5  # 学习率
-WEIGHT_DECAY = 0.01  # 权重衰减
-DISABLE_TQDM = False  # 是否禁用进度条
-SEED = 42  # 随机种子
-USE_DATA_PARALLEL = False  # 是否使用DataParallel而非DistributedDataParallel
-
-# 是否使用关键词指令
-USE_KEYWORDS = False  # 设为True使用关键词指令，False使用简单指令
-
-# 基础简单指令
-SIMPLE_INSTRUCTION = "Transcribe the audio clip into text."
+# 基础任务指令
+BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
-KEYWORD_INSTRUCTION = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
-# 选择使用哪个指令
-BASE_INSTRUCTION = KEYWORD_INSTRUCTION if USE_KEYWORDS else SIMPLE_INSTRUCTION
+KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
 # 答案后缀标记，用于标识生成结束
 ANSWER_SUFFIX = "<|end|><|endoftext|>"
 # 标签忽略索引值，用于损失计算中忽略某些位置
@@ -181,18 +171,14 @@ class CatsluKeywordsDataset(Dataset):
 
     def _build_instruction_with_keywords(self, source):
         """根据领域构建包含关键词的指令"""
-        if USE_KEYWORDS:
-            domain_keywords = self._get_domain_keywords(source)
-            if domain_keywords:
-                # 使用该领域的全部关键词
-                keywords_str = ', '.join(domain_keywords)
-                return KEYWORD_INSTRUCTION.format(intent=source, keywords=keywords_str)
-            else:
-                # 即使启用了关键词但没有找到关键词，仍然使用关键词模板，只是关键词为空
-                return KEYWORD_INSTRUCTION.format(intent=source, keywords="")
+        domain_keywords = self._get_domain_keywords(source)
+        
+        if domain_keywords:
+            # 使用该领域的全部关键词
+            keywords_str = ', '.join(domain_keywords)
+            return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
         else:
-            # 不使用关键词时直接返回简单指令
-            return SIMPLE_INSTRUCTION
+            return BASE_INSTRUCTION
 
     def __len__(self):
         return len(self.data)
@@ -398,57 +384,15 @@ def catslu_collate_fn(batch):
 
 def create_model(model_name_or_path, use_flash_attention=False):
     """
-    创建因果语言模型，支持自动设备映射
+    创建因果语言模型，可选择使用flash attention加速
     """
-    # 检测可用的GPU数量
-    num_gpus = torch.cuda.device_count()
-    print(f"检测到 {num_gpus} 个GPU")
-    
-    # 强制关闭flash attention，使用fp16
-    use_flash_attention = False
-    print("强制关闭FlashAttention，使用fp16量化训练")
-    
-    # 检查是否在分布式训练模式
-    is_distributed = int(os.environ.get('WORLD_SIZE', 1)) > 1
-    print(f"分布式训练模式: {is_distributed}")
-    
-    if num_gpus == 0:
-        # 如果没有GPU，使用CPU
-        print("未检测到GPU，使用CPU运行")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=torch.float32,
-            _attn_implementation='sdpa',
-            trust_remote_code=True,
-            device_map="cpu",
-        )
-    elif num_gpus == 1 or is_distributed:
-        # 单GPU情况或分布式训练时，不使用device_map
-        print(f"使用{'分布式' if is_distributed else '单GPU'}运行，fp16量化")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=torch.float16,  # 强制使用fp16
-            _attn_implementation='sdpa',  # 使用默认注意力实现
-            trust_remote_code=True,
-            # 分布式训练时不使用device_map
-        )
-        
-        # 在分布式训练中，让模型先在CPU上加载，然后再移动到GPU
-        if is_distributed and torch.cuda.is_available():
-            print("模型加载完成，准备分布式训练...")
-    else:
-        # 多GPU情况但非分布式，使用模型并行，fp16量化
-        print(f"使用多GPU模型并行运行，将模型分布到 {num_gpus} 个GPU上，fp16量化")
-        
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path,
-            torch_dtype=torch.float16,  # 强制使用fp16
-            _attn_implementation='sdpa',  # 使用默认注意力实现
-            trust_remote_code=True,
-            device_map="auto",  # 只在非分布式模式下使用auto
-            max_memory={i: "8GiB" for i in range(num_gpus)},  # 进一步减少内存限制
-        )
-    
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
+        _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
+        trust_remote_code=True,
+    )
+    # 移除手动设备分配，让accelerate自动管理
     return model
 
 
@@ -484,13 +428,20 @@ def cer(r: list, h: list):
 
 @torch.no_grad()
 def evaluate(
-    model, processor, eval_dataset, save_path=None, disable_tqdm=False, eval_batch_size=1
+    model, processor, eval_dataset, save_path=None, disable_tqdm=False, eval_batch_size=1, accelerator=None
 ):
     """
     评估模型在ASR任务上的性能，计算CER和Keyword Error Rate，并按领域统计
     """
-    rank = int(os.environ.get('RANK', 0))
-    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if accelerator is None:
+        # 如果没有提供accelerator，创建一个默认的
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        rank = 0
+        is_main_process = True
+    else:
+        device = accelerator.device
+        rank = accelerator.process_index
+        is_main_process = accelerator.is_main_process
 
     model.eval()  # 设置为评估模式
     all_generated_transcripts = []  # 存储生成的转录结果
@@ -513,28 +464,7 @@ def evaluate(
     # 定义停止标记
     stop_tokens = ["<|end|>", processor.tokenizer.eos_token]
     stop_tokens_ids = processor.tokenizer(stop_tokens, add_special_tokens=False, padding="longest", return_tensors="pt")["input_ids"]
-    
-    # 智能设备分配
-    num_gpus = torch.cuda.device_count()
-    if num_gpus == 0:
-        # CPU模式
-        device = "cpu"
-        stop_tokens_ids = stop_tokens_ids.to(device)
-    elif num_gpus == 1:
-        # 单GPU模式
-        device = f'cuda:{local_rank}'
-        stop_tokens_ids = stop_tokens_ids.to(device)
-    else:
-        # 多GPU模式，使用模型的第一个设备
-        # 获取模型的设备信息
-        if hasattr(model, 'hf_device_map'):
-            # 如果模型使用了device_map，获取第一个参数的设备
-            first_device = next(iter(model.hf_device_map.values()))
-            device = f'cuda:{first_device}' if isinstance(first_device, int) else str(first_device)
-        else:
-            # 回退到第一个参数的设备
-            device = next(model.parameters()).device
-        stop_tokens_ids = stop_tokens_ids.to(device)
+    stop_tokens_ids = stop_tokens_ids.to(device)
 
     # 遍历评估数据集
     for inputs in tqdm(
@@ -543,17 +473,7 @@ def evaluate(
         # 设置停止条件
         stopping_criteria=StoppingCriteriaList([MultipleTokenBatchStoppingCriteria(stop_tokens_ids, batch_size=inputs.input_ids.size(0))])
         inputs_to_model = {k: v for k, v in inputs.items() if k not in ['keywords', 'manual_transcripts', 'sources']}
-        
-        # 智能设备分配
-        if num_gpus == 0:
-            # CPU模式
-            inputs_to_model = {k: v.to("cpu") if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
-        elif num_gpus == 1:
-            # 单GPU模式
-            inputs_to_model = {k: v.to(f'cuda:{local_rank}') if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
-        else:
-            # 多GPU模式，将输入数据移动到模型的第一个设备
-            inputs_to_model = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
+        inputs_to_model = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
         
         # 生成ASR转录
         generated_ids = model.generate(
@@ -592,13 +512,14 @@ def evaluate(
             all_sources.extend(inputs['sources'])
 
     # 在分布式环境中收集所有进程的结果
-    all_generated_transcripts = gather_object(all_generated_transcripts)
-    all_ground_truth = gather_object(all_ground_truth)
-    all_keywords = gather_object(all_keywords)
-    all_sources = gather_object(all_sources)
+    if accelerator is not None:
+        all_generated_transcripts = gather_object(all_generated_transcripts)
+        all_ground_truth = gather_object(all_ground_truth)
+        all_keywords = gather_object(all_keywords)
+        all_sources = gather_object(all_sources)
     
     # 只在主进程中计算评估指标
-    if rank == 0:
+    if is_main_process:
         assert len(all_generated_transcripts) == len(all_ground_truth)
         
         # 计算总体CER
@@ -714,141 +635,59 @@ def evaluate(
 
 def main():
     """主函数，包含模型训练和评估的完整流程"""
-    # 设置随机种子以确保可复现性
-    set_seed(SEED)
-    
-    # CUDA内存管理和错误调试设置
-    if torch.cuda.is_available():
-        # 清理CUDA缓存
-        torch.cuda.empty_cache()
-        # 设置CUDA内存分配策略
-        torch.cuda.memory._set_allocator_settings("expandable_segments:True")
-        # 启用CUDA错误检查（用于调试）
-        # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-        print(f"CUDA版本: {torch.version.cuda}")
-        print(f"可用GPU数量: {torch.cuda.device_count()}")
-        for i in range(torch.cuda.device_count()):
-            props = torch.cuda.get_device_properties(i)
-            print(f"GPU {i}: {props.name}, 内存: {props.total_memory / 1024**3:.1f}GB")
-    
     # 初始化加速器，用于分布式训练
-    # 如果指定使用DataParallel，则不使用Accelerator
-    if USE_DATA_PARALLEL and torch.cuda.device_count() > 1:
-        print("使用DataParallel模式而非分布式训练")
-        accelerator = None
-        
-        # 直接加载处理器和模型
+    accelerator = Accelerator()
+
+    # 确保主进程先加载模型
+    with accelerator.local_main_process_first():
+        # 加载处理器
         processor = AutoProcessor.from_pretrained(
             MODEL_NAME_OR_PATH,
             trust_remote_code=True,
         )
-        
-        print("加载模型用于DataParallel...")
-        model = AutoModelForCausalLM.from_pretrained(
+        # 创建模型
+        model = create_model(
             MODEL_NAME_OR_PATH,
-            torch_dtype=torch.float16,
-            _attn_implementation='sdpa',
-            trust_remote_code=True,
-            low_cpu_mem_usage=True,
+            use_flash_attention=USE_FLASH_ATTENTION,
         )
-        
-        # 设置模型使用语音适配器
-        model.set_lora_adapter('speech')
-        
-        # 移动到GPU并使用DataParallel
-        if torch.cuda.is_available():
-            model = model.cuda()
-            model = torch.nn.DataParallel(model)
-            print(f"使用DataParallel包装模型，GPU数量: {torch.cuda.device_count()}")
-        
-        # 设置分布式相关参数
-        rank = 0
-        world_size = 1
-        effective_num_gpus = torch.cuda.device_count()
-        
-    else:
-        # 标准分布式训练流程
-        accelerator = Accelerator()
 
-        # 确保主进程先加载模型
-        with accelerator.local_main_process_first():
-            # 加载处理器
-            processor = AutoProcessor.from_pretrained(
-                MODEL_NAME_OR_PATH,
-                trust_remote_code=True,
-            )
-            
-            # 在分布式环境中同步
-            if not accelerator or accelerator.is_main_process:
-                print("主进程加载模型...")
-            
-            # 创建模型，支持多GPU
-            model = create_model(
-                MODEL_NAME_OR_PATH,
-                use_flash_attention=USE_FLASH_ATTENTION
-            )
-            
-            # 确保模型加载完成后同步
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
+    # 设置模型使用语音适配器（在prepare之前）
+    model.set_lora_adapter('speech')
 
-        # 设置模型使用语音适配器
-        model.set_lora_adapter('speech')
-        
-        # 分布式训练后同步
-        accelerator.wait_for_everyone()
-
-        # 获取分布式训练的排名和总进程数
-        rank = int(os.environ.get('RANK', 0))
-        world_size = int(os.environ.get('WORLD_SIZE', 1))
-        effective_num_gpus = accelerator.num_processes
-
-    # 检测GPU数量并调整训练策略
-    num_gpus = torch.cuda.device_count()
-    print(f'检测到 {num_gpus} 个GPU，当前训练进程数: {effective_num_gpus}')
-    
-    # 如果是多GPU环境，但没有使用分布式训练，建议使用模型并行
-    if num_gpus > 1 and (not accelerator or accelerator.num_processes == 1):
-        if not USE_DATA_PARALLEL:
-            print("检测到多GPU环境，建议使用以下命令启动分布式训练:")
-            print(f"accelerate launch --multi_gpu --num_processes={num_gpus} {' '.join(__import__('sys').argv)}")
-            print("或者使用 --use_data_parallel 参数启用DataParallel模式...")
-        else:
-            print("当前使用DataParallel模式运行...")
+    # 获取分布式训练的排名和总进程数
+    rank = accelerator.process_index
+    world_size = accelerator.num_processes
     
     # 读取完整数据集
     full_dataset = pd.read_csv(CATSLU_DATA_PATH)
-    
-    # 设置标志，确定是否执行评估
-    do_evaluation = _EVAL_SIZE is not None
-    
-    # 划分训练集和评估集
     total_samples = len(full_dataset)
-    if do_evaluation and _EVAL_SIZE < total_samples:
-        eval_indices = np.random.choice(total_samples, _EVAL_SIZE, replace=False)
-        train_indices = np.array([i for i in range(total_samples) if i not in eval_indices])
-        
-        eval_data = full_dataset.iloc[eval_indices].reset_index(drop=True)
-        train_data = full_dataset.iloc[train_indices].reset_index(drop=True)
-        
-        # 创建asr/exp目录（如果不存在）
-        exp_dir = os.path.join("asr", "exp")
-        os.makedirs(exp_dir, exist_ok=True)
-        
-        # 将划分后的数据保存到asr/exp目录下的临时文件
-        eval_path = os.path.join(exp_dir, "eval_temp.csv")
-        train_path = os.path.join(exp_dir, "train_temp.csv")
-        
-        eval_data.to_csv(eval_path, index=False)
-        train_data.to_csv(train_path, index=False)
-    else:
-        # 如果不需要划分或评估集大小过大，则使用相同的数据集
-        train_path = CATSLU_DATA_PATH
-        if do_evaluation:
-            eval_path = CATSLU_DATA_PATH
     
-    # 只有在需要评估时才创建评估数据集
-    if do_evaluation:
+    # 判断是否需要评估
+    should_evaluate = _EVAL_SIZE is not None
+    eval_dataset = None
+    eval_path = None
+    train_path = CATSLU_DATA_PATH
+    
+    if should_evaluate:
+        # 划分训练集和评估集
+        if _EVAL_SIZE < total_samples:
+            eval_indices = np.random.choice(total_samples, _EVAL_SIZE, replace=False)
+            train_indices = np.array([i for i in range(total_samples) if i not in eval_indices])
+            
+            eval_data = full_dataset.iloc[eval_indices].reset_index(drop=True)
+            train_data = full_dataset.iloc[train_indices].reset_index(drop=True)
+            
+            # 将划分后的数据保存为临时文件
+            eval_path = os.path.join(os.path.dirname(CATSLU_DATA_PATH), "eval_temp.csv")
+            train_path = os.path.join(os.path.dirname(CATSLU_DATA_PATH), "train_temp.csv")
+            
+            eval_data.to_csv(eval_path, index=False)
+            train_data.to_csv(train_path, index=False)
+        else:
+            # 如果评估集大小过大，则使用相同的数据集
+            eval_path = CATSLU_DATA_PATH
+            train_path = CATSLU_DATA_PATH
+
         # 创建评估数据集
         eval_dataset = CatsluKeywordsDataset(
             processor,
@@ -870,39 +709,34 @@ def main():
     )
     
     # 输出数据集统计信息
-    if not accelerator or accelerator.is_main_process:
+    if accelerator.is_main_process:
         print(f"Train dataset size: {len(train_dataset)}")
-        if do_evaluation:
+        if should_evaluate:
             print(f"Eval dataset size: {len(eval_dataset)}")
         else:
-            print("不执行验证")
+            print("Evaluation is disabled (_EVAL_SIZE is None)")
         print(f"Keywords directory: {KEYWORDS_DIR}")
 
     # 计算GPU数量并进行批处理大小断言
-    print(f'有效训练GPU数量: {effective_num_gpus}')
-    
-    # 调整批处理大小以适应GPU数量
-    batch_size = BATCH_SIZE
-    batch_size_per_gpu = BATCH_SIZE_PER_GPU
-    if batch_size % (effective_num_gpus * batch_size_per_gpu) != 0:
-        print(f"警告: 批处理大小 {batch_size} 不能被 (GPU数量 {effective_num_gpus} * 每GPU批处理大小 {batch_size_per_gpu}) 整除")
-        # 自动调整批处理大小
-        batch_size = effective_num_gpus * batch_size_per_gpu
-        print(f"自动调整批处理大小为: {batch_size}")
-    
-    gradient_accumulation_steps = batch_size // (effective_num_gpus * batch_size_per_gpu)
-    print(f'梯度累积步数: {gradient_accumulation_steps}')
+    num_gpus = accelerator.num_processes
+    print(f'training on {num_gpus} GPUs')
+    assert (
+        BATCH_SIZE % (num_gpus * BATCH_SIZE_PER_GPU) == 0
+    ), 'Batch size must be divisible by the number of GPUs'
+    gradient_accumulation_steps = BATCH_SIZE // (num_gpus * BATCH_SIZE_PER_GPU)
 
     # 根据是否使用flash attention选择精度
-    # 强制使用fp16，不使用bfloat16
-    fp16 = True
-    bf16 = False
-    print("使用fp16精度训练")
+    if USE_FLASH_ATTENTION:
+        fp16 = False
+        bf16 = True
+    else:
+        fp16 = True
+        bf16 = False
 
-    # 设置训练参数，针对多GPU优化
+    # 设置训练参数
     training_args = TrainingArguments(
         num_train_epochs=NUM_TRAIN_EPOCHS,
-        per_device_train_batch_size=batch_size_per_gpu,
+        per_device_train_batch_size=BATCH_SIZE_PER_GPU,
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={'use_reentrant': False},
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -911,7 +745,7 @@ def main():
         adam_beta2=0.95,
         adam_epsilon=1e-7,
         learning_rate=LEARNING_RATE,
-        weight_decay=WEIGHT_DECAY,
+        weight_decay=WD,
         max_grad_norm=1.0,
         lr_scheduler_type='linear',
         warmup_steps=50,
@@ -922,44 +756,52 @@ def main():
         save_only_model=True,
         bf16=bf16,
         fp16=fp16,
-        fp16_opt_level="O1",  # 添加fp16优化级别
         remove_unused_columns=False,
         report_to='none',
-        disable_tqdm=DISABLE_TQDM,
-        dataloader_num_workers=0,  # 减少worker数量避免内存问题
-        ddp_find_unused_parameters=False,  # 设为False提高性能
-        # 多GPU优化参数
-        dataloader_pin_memory=False,  # 关闭pin_memory减少内存使用
-        group_by_length=False,  # 关闭长度分组以避免音频长度问题
-        # 内存优化
-        dataloader_persistent_workers=False,  # 在多GPU环境下关闭持久化worker
-        ddp_backend="nccl",  # 明确指定分布式后端
-        ddp_timeout=3600,  # 增加超时时间
-        # 添加更多稳定性设置
-        skip_memory_metrics=True,  # 跳过内存指标收集
-        torch_compile=False,  # 禁用torch编译
-        ddp_broadcast_buffers=False,  # 禁用广播缓冲区以减少内存使用
+        deepspeed=None,
+        disable_tqdm=not TQDM_ENABLED,
+        dataloader_num_workers=1,
+        ddp_find_unused_parameters=True,  # 用于未使用的SigLIP层
     )
 
-    # 创建输出目录
+    # TrainingArguments可能会重置AcceleratorState，所以重新初始化accelerator
+    accelerator = Accelerator()
+
+    # 创建训练数据加载器
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=BATCH_SIZE_PER_GPU,
+        collate_fn=catslu_collate_fn,
+        shuffle=True,
+        drop_last=False,
+        num_workers=1,
+        pin_memory=True,
+    )
+
+    # 现在使用accelerator准备模型和数据加载器
+    model, train_dataloader = accelerator.prepare(model, train_dataloader)
+
+    # 微调前先评估（仅在should_evaluate为True时）
     out_path = Path(training_args.output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
 
-    # 只有在需要评估时才执行评估
-    if do_evaluation:
-        # 微调前先评估
+    if should_evaluate:
         cer_before, keyword_error_rate_before = evaluate(
             model,
             processor,
             eval_dataset,
             save_path=out_path / 'eval_before.json',
-            disable_tqdm=DISABLE_TQDM,
-            eval_batch_size=batch_size_per_gpu,
+            disable_tqdm=not TQDM_ENABLED,
+            eval_batch_size=BATCH_SIZE_PER_GPU,
+            accelerator=accelerator,
         )
-        if not accelerator or accelerator.is_main_process:
+        if accelerator.is_main_process:
             print(f'CER before finetuning: {cer_before}')
             if keyword_error_rate_before is not None:
                 print(f'Keyword Error Rate before finetuning: {keyword_error_rate_before}')
+    else:
+        if accelerator.is_main_process:
+            print('Skipping evaluation before finetuning (_EVAL_SIZE is None)')
 
     # 创建Trainer实例并开始训练
     trainer = Trainer(
@@ -968,75 +810,29 @@ def main():
         data_collator=catslu_collate_fn,
         train_dataset=train_dataset,
     )
-    
-    # 训练前清理内存和同步
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-    if accelerator:
-        accelerator.wait_for_everyone()
 
     trainer.train()
-    
-    # 训练后清理内存和同步
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-    if accelerator:
-        accelerator.wait_for_everyone()
-    
     trainer.save_model()
-    if not accelerator or accelerator.is_main_process:
+    if accelerator.is_main_process:
         processor.save_pretrained(training_args.output_dir)
-    if accelerator:
-        accelerator.wait_for_everyone()
+    accelerator.wait_for_everyone()
 
-    # 只有在需要评估时才执行评估
-    if do_evaluation:
-        # 微调后评估（加载保存的检查点）
+    # 微调后评估（仅在should_evaluate为True时）
+    if should_evaluate:
         # 首先尝试清理GPU内存
         del model
         del trainer
         __import__('gc').collect()
         torch.cuda.empty_cache()
 
-        # 重新加载模型用于推理，支持多GPU
-        print("重新加载模型进行推理...")
-        
-        # 检查是否在分布式训练模式
-        is_distributed = int(os.environ.get('WORLD_SIZE', 1)) > 1
-        
-        if torch.cuda.device_count() > 1 and not is_distributed:
-            # 多GPU推理，非分布式模式
-            print(f"使用 {torch.cuda.device_count()} 个GPU进行推理（模型并行）")
-            model = AutoModelForCausalLM.from_pretrained(
-                training_args.output_dir,
-                torch_dtype=torch.float16,  # 强制使用fp16
-                trust_remote_code=True,
-                _attn_implementation='sdpa',  # 使用默认注意力实现
-                device_map="auto",  # 只在非分布式模式下使用auto
-                max_memory={i: "10GiB" for i in range(torch.cuda.device_count())},
-            )
-        elif torch.cuda.device_count() >= 1:
-            # 单GPU推理或分布式推理
-            print(f"使用{'分布式' if is_distributed else '单GPU'}进行推理")
-            model = AutoModelForCausalLM.from_pretrained(
-                training_args.output_dir,
-                torch_dtype=torch.float16,  # 强制使用fp16
-                trust_remote_code=True,
-                _attn_implementation='sdpa',  # 使用默认注意力实现
-                # 分布式训练时不使用device_map
-            )
-        else:
-            # CPU推理
-            print("使用CPU进行推理")
-            model = AutoModelForCausalLM.from_pretrained(
-                training_args.output_dir,
-                torch_dtype=torch.float32,
-                trust_remote_code=True,
-                _attn_implementation='sdpa',
-                device_map="cpu",
-            )
+        # 重新加载模型用于推理，重用现有的accelerator
+        model = AutoModelForCausalLM.from_pretrained(
+            training_args.output_dir,
+            torch_dtype=torch.bfloat16 if USE_FLASH_ATTENTION else torch.float32,
+            trust_remote_code=True,
+            _attn_implementation='flash_attention_2' if USE_FLASH_ATTENTION else 'sdpa',
+        )
+        model = accelerator.prepare(model)
 
         # 进行微调后的评估
         cer_after, keyword_error_rate_after = evaluate(
@@ -1044,22 +840,22 @@ def main():
             processor,
             eval_dataset,
             save_path=out_path / 'eval_after.json',
-            disable_tqdm=DISABLE_TQDM,
-            eval_batch_size=batch_size_per_gpu,
+            disable_tqdm=not TQDM_ENABLED,
+            eval_batch_size=BATCH_SIZE_PER_GPU,
+            accelerator=accelerator,
         )
-        if not accelerator or accelerator.is_main_process:
+        if accelerator.is_main_process:
             print(f'CER after finetuning: {cer_after}')
             if keyword_error_rate_after is not None:
                 print(f'Keyword Error Rate after finetuning: {keyword_error_rate_after}')
-    
-        # 清理临时文件
-        if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:
-            if os.path.exists(eval_path) and eval_path != CATSLU_DATA_PATH:
-                os.remove(eval_path)
-            if os.path.exists(train_path) and train_path != CATSLU_DATA_PATH:
-                os.remove(train_path)
     else:
-        # 如果不执行评估，但有创建临时训练文件，也需要清理
+        if accelerator.is_main_process:
+            print('Skipping evaluation after finetuning (_EVAL_SIZE is None)')
+    
+    # 清理临时文件（仅在创建了临时文件时）
+    if should_evaluate and _EVAL_SIZE < total_samples:
+        if os.path.exists(eval_path) and eval_path != CATSLU_DATA_PATH:
+            os.remove(eval_path)
         if os.path.exists(train_path) and train_path != CATSLU_DATA_PATH:
             os.remove(train_path)
 
