@@ -45,12 +45,13 @@ TQDM_ENABLED = True
 DEVICE_MAP_PATH = 'asr/finetune/device_map.json'
 
 USE_KEYWORDS = True
+INTENT_IN_PROMPT = True
 # 关键词随机选择参数
 NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
 # 基础任务指令
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
-KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
+KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
 # 答案后缀标记，用于标识生成结束
 ANSWER_SUFFIX = "<|end|><|endoftext|>"
 # 标签忽略索引值，用于损失计算中忽略某些位置
@@ -151,7 +152,10 @@ class CatsluKeywordsDataset(Dataset):
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
-            return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
+            if INTENT_IN_PROMPT:
+                return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=source, keywords=keywords_str)
+            else:
+                return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
 

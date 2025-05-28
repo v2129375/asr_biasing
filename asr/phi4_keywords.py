@@ -1,3 +1,4 @@
+import json
 import requests
 import torch
 import os
@@ -19,16 +20,20 @@ from score import evaluate_asr
 
 
 USE_KEYWORDS = True
+INTENT_IN_PROMPT = True
 # 关键词随机选择参数
-NUM_KEYWORDS = 100  # 随机选择的关键词数量，设为0表示使用全部关键词
+NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
 # 基础任务指令（与微调代码保持一致）
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板（与微调代码保持一致）
-KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
+# KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
+KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
 input_data_path = "intent/exp/phi4_intent_result.csv"
 output_data_path = "asr/exp/phi4_keywords_asr_result_ori.csv"
-model_path = "asr/model/new"
+model_path = "asr/model/p2keywords"
 base_model_path = "microsoft/Phi-4-multimodal-instruct"
+DEVICE_MAP_PATH = 'asr/finetune/device_map.json'
+
 
 class Phi4:
     def __init__(self, gpu_ids=None, batch_size=1):
@@ -52,8 +57,8 @@ class Phi4:
         
         # 构建device_map
         if num_gpus > 1:
-            # 使用自动设备映射
-            device_map = "auto"
+            with open(DEVICE_MAP_PATH, 'r') as f:
+                device_map = json.load(f)
         else:
             # 单GPU情况
             device_map = self.main_device
@@ -129,7 +134,10 @@ class Phi4:
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
-            return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
+            if INTENT_IN_PROMPT:
+                return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=intent, keywords=keywords_str)
+            else:
+                return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
     
@@ -194,7 +202,7 @@ class Phi4:
             
             # 为每个索引分配相应的响应
             for i, response in enumerate(responses):
-                print(f'>>> Response {i+1}/{len(responses)}\n{response}')
+                # print(f'>>> Response {i+1}/{len(responses)}\n{response}')
                 results.append(response)
         
         # 清理缓存
