@@ -17,13 +17,17 @@ from torch.cuda.amp import autocast
 # 导入评分模块
 from score import evaluate_asr
 
+
+USE_KEYWORDS = True
+# 关键词随机选择参数
+NUM_KEYWORDS = 100  # 随机选择的关键词数量，设为0表示使用全部关键词
 # 基础任务指令（与微调代码保持一致）
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板（与微调代码保持一致）
 KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
 input_data_path = "intent/exp/phi4_intent_result.csv"
 output_data_path = "asr/exp/phi4_keywords_asr_result_ori.csv"
-model_path = "microsoft/Phi-4-multimodal-instruct"
+model_path = "asr/model/new"
 base_model_path = "microsoft/Phi-4-multimodal-instruct"
 
 class Phi4:
@@ -107,14 +111,23 @@ class Phi4:
         else:
             domain = 'video'  # 默认使用video领域
             
-        return self.keywords_dict.get(domain, [])
+        keywords = self.keywords_dict.get(domain, [])
+        
+        # 如果设置了随机选择关键词数量且有足够的关键词
+        if NUM_KEYWORDS > 0 and USE_KEYWORDS and keywords:
+            # 确保选择的关键词数量不超过可用关键词总数
+            num_to_select = min(len(keywords), NUM_KEYWORDS)
+            # 随机选择指定数量的关键词
+            return random.sample(keywords, num_to_select)
+        else:
+            return keywords
     
     def build_instruction_with_keywords(self, intent):
         """根据意图构建包含关键词的指令"""
         domain_keywords = self.get_domain_keywords(intent)
         
-        if domain_keywords:
-            # 使用该领域的全部关键词
+        if domain_keywords and USE_KEYWORDS:
+            # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
             return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
         else:
@@ -216,6 +229,14 @@ def parse_args():
 if __name__ == "__main__":
     # 解析命令行参数
     args = parse_args()
+    
+    # 输出关键词使用情况
+    print(f"使用关键词: {USE_KEYWORDS}")
+    if USE_KEYWORDS:
+        if NUM_KEYWORDS > 0:
+            print(f"随机选择关键词: 每个样本选择 {NUM_KEYWORDS} 个关键词")
+        else:
+            print(f"使用所有可用的关键词")
     
     # 解析GPU ID列表
     gpu_ids = [int(gpu_id.strip()) for gpu_id in args.gpus.split(',')]

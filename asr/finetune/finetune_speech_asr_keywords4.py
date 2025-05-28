@@ -1,7 +1,6 @@
 """
 finetune Phi-4-multimodal-instruct on an ASR (Automatic Speech Recognition) task with domain-specific keywords
 在ASR（自动语音识别）任务上微调 Phi-4-multimodal-instruct 模型，支持领域特定关键词
-这个模板是使用accelerate进行分布式训练
 
 scipy==1.15.1
 peft==0.13.2
@@ -14,6 +13,7 @@ import json
 import os
 import pandas as pd
 from pathlib import Path
+import random
 
 import torch
 import numpy as np
@@ -30,6 +30,7 @@ from transformers import (
 )
 
 # 全局参数设置
+GPU_IDS = [0,1]
 MODEL_NAME_OR_PATH = 'microsoft/Phi-4-multimodal-instruct'
 CATSLU_DATA_PATH = "data/catslu/train.csv"
 KEYWORDS_DIR = "data/catslu"
@@ -42,7 +43,9 @@ LEARNING_RATE = 4.0e-5
 WD = 0.01
 TQDM_ENABLED = True
 
-USE_KEYWORDS = False
+USE_KEYWORDS = True
+# 关键词随机选择参数
+NUM_KEYWORDS = 300  # 随机选择的关键词数量，设为0表示使用全部关键词
 # 基础任务指令
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
@@ -125,7 +128,16 @@ class CatsluKeywordsDataset(Dataset):
     def _get_domain_keywords(self, source):
         """根据数据源获取对应领域的关键词"""
         if source in self.keywords_dict:
-            return self.keywords_dict[source]
+            keywords = self.keywords_dict[source]
+            
+            # 如果设置了随机选择关键词数量且有足够的关键词
+            if NUM_KEYWORDS > 0 and USE_KEYWORDS and keywords:
+                # 确保选择的关键词数量不超过可用关键词总数
+                num_to_select = min(len(keywords), NUM_KEYWORDS)
+                # 随机选择指定数量的关键词
+                return random.sample(keywords, num_to_select)
+            else:
+                return keywords
         else:
             # 如果没有找到对应的关键词，打印警告并返回空列表
             print(f"Warning: No keywords found for source '{source}', using empty keyword list")
@@ -136,7 +148,7 @@ class CatsluKeywordsDataset(Dataset):
         domain_keywords = self._get_domain_keywords(source)
         
         if domain_keywords and USE_KEYWORDS:
-            # 使用该领域的全部关键词
+            # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
             return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
         else:
@@ -317,37 +329,43 @@ def create_model(model_name_or_path, use_flash_attention=False):
     """
     创建因果语言模型，可选择使用flash attention加速
     """
+    gpu_ids = GPU_IDS
+    num_gpus = len(gpu_ids)
+    print(f"使用GPU: {gpu_ids}")
+    main_device = f"cuda:{gpu_ids[0]}"
+    # 构建device_map
+    if num_gpus > 1:
+        # 使用自动设备映射
+        device_map = "auto"
+    else:
+        # 单GPU情况
+        device_map = main_device
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
         _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
         trust_remote_code=True,
+        device_map=device_map
     )
     return model
 
 
 def main():
     """主函数，包含模型训练的完整流程"""
-    # 初始化加速器，用于分布式训练
-    accelerator = Accelerator()
 
-    with accelerator.local_main_process_first():
-        processor = AutoProcessor.from_pretrained(
-            MODEL_NAME_OR_PATH,
-            trust_remote_code=True,
-        )
-        # 创建模型
-        model = create_model(
-            MODEL_NAME_OR_PATH,
-            use_flash_attention=USE_FLASH_ATTENTION,
-        )
+    processor = AutoProcessor.from_pretrained(
+        MODEL_NAME_OR_PATH,
+        trust_remote_code=True,
+    )
+    # 创建模型
+    model = create_model(
+        MODEL_NAME_OR_PATH,
+        use_flash_attention=USE_FLASH_ATTENTION,
+    )
 
     # 设置模型使用语音适配器（在prepare之前）
     model.set_lora_adapter('speech')
 
-    # 获取分布式训练的排名和总进程数
-    rank = accelerator.process_index
-    world_size = accelerator.num_processes
     
     # 创建训练数据集
     train_dataset = CatsluKeywordsDataset(
@@ -355,17 +373,22 @@ def main():
         data_path=CATSLU_DATA_PATH,
         keywords_dir=KEYWORDS_DIR,
         split="train",
-        rank=rank,
-        world_size=world_size
+        world_size=1
     )
     
     # 输出数据集统计信息
-    if accelerator.is_main_process:
-        print(f"Train dataset size: {len(train_dataset)}")
-        print(f"Keywords directory: {KEYWORDS_DIR}")
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Keywords directory: {KEYWORDS_DIR}")
+    print(f"Use keywords: {USE_KEYWORDS}")
+    if USE_KEYWORDS:
+        if NUM_KEYWORDS > 0:
+            print(f"Random keywords selection: enabled (selecting {NUM_KEYWORDS} keywords per sample)")
+        else:
+            print(f"Using all available keywords for each domain")
 
     # 计算GPU数量并进行批处理大小断言
-    num_gpus = accelerator.num_processes
+    gpu_ids = GPU_IDS
+    num_gpus = len(gpu_ids)
     print(f'training on {num_gpus} GPUs')
     assert (
         BATCH_SIZE % (num_gpus * BATCH_SIZE_PER_GPU) == 0
@@ -425,12 +448,11 @@ def main():
 
     trainer.train()
     trainer.save_model()
-    if accelerator.is_main_process:
-        processor.save_pretrained(training_args.output_dir)
-    accelerator.wait_for_everyone()
 
-    if accelerator.is_main_process:
-        print('Training completed successfully!')
+    processor.save_pretrained(training_args.output_dir)
+
+
+    print('Training completed successfully!')
 
 
 if __name__ == '__main__':
