@@ -1,5 +1,7 @@
 import pandas
 import numpy as np
+import os
+import json
 
 def cer(r: list, h: list):
     """
@@ -38,7 +40,7 @@ def cer(r: list, h: list):
     return d[len(r)][len(h)] / float(len(r))
 
 
-def evaluate_asr(df, cal_keyword_wer=True, print_errors=True):
+def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
     """
     评估ASR结果的函数
     
@@ -46,6 +48,7 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True):
     df: pandas.DataFrame - 包含 'manual_transcript', 'asr', 'keyword', 'source' 列的数据框
     cal_keyword_wer: bool - 是否计算关键词错误率，默认为True
     print_errors: bool - 是否打印错误识别的样本，默认为True
+    output_file: str - 结果保存文件路径，如果为None则不保存结果
     
     返回:
     dict - 包含总体和各类别的 'cer' 和 'keyword_wer'(如果计算) 的字典
@@ -159,13 +162,43 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True):
         if cal_keyword_wer:
             print(f"Keyword WER: {results[category]['keyword_wer']:.4f}")
     
+    # 如果指定了输出文件，将结果保存到JSON文件
+    if output_file is not None:
+        # 创建结果数据
+        result_data = {
+            "overall": {
+                "cer": results["overall"]["cer"]
+            },
+            "categories": {}
+        }
+        
+        if cal_keyword_wer:
+            result_data["overall"]["keyword_wer"] = results["overall"]["keyword_wer"]
+        
+        # 添加各类别结果
+        for category in categories:
+            result_data["categories"][category] = {
+                "sample_count": category_counts[category],
+                "cer": results[category]["cer"]
+            }
+            if cal_keyword_wer:
+                result_data["categories"][category]["keyword_wer"] = results[category]["keyword_wer"]
+        
+        # 保存到JSON文件
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(result_data, f, ensure_ascii=False, indent=4)
+        print(f"\n结果已保存到: {output_file}")
+    
     return results
 
 
 def main():
     """主函数，用于直接执行脚本时调用"""
-    df = pandas.read_csv("asr/exp/phi4_keywords_asr_result_ori.csv")
-    return evaluate_asr(df, cal_keyword_wer=True)
+    input_file = "/home/v2129375/asr_biasing/asr/exp/aishell1p2keywords.csv"
+    df = pandas.read_csv(input_file)
+    # 添加输出文件参数
+    output_file = input_file.replace('.csv', '.json')
+    return evaluate_asr(df, cal_keyword_wer=True, output_file=output_file)
 
 
 if __name__ == "__main__":

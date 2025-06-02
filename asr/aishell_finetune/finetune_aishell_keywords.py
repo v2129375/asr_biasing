@@ -14,6 +14,7 @@ import os
 import pandas as pd
 from pathlib import Path
 import random
+import argparse
 
 import torch
 import numpy as np
@@ -29,29 +30,51 @@ from transformers import (
     TrainingArguments,
 )
 
-# 全局参数设置
-GPU_IDS = [0,1]
-MODEL_NAME_OR_PATH = 'microsoft/Phi-4-multimodal-instruct'
-CATSLU_DATA_PATH = "data/aishell/train.csv"
-KEYWORDS_DIR = "data/catslu"
-USE_FLASH_ATTENTION = True
-OUTPUT_DIR = 'asr/model/new'
-BATCH_SIZE = 2
-BATCH_SIZE_PER_GPU = 1
-NUM_TRAIN_EPOCHS = 1
-LEARNING_RATE = 4.0e-5
-WD = 0.01
-TQDM_ENABLED = True
-DEVICE_MAP_PATH = 'asr/finetune/device_map.json'
+# 定义命令行参数解析
+def parse_args():
+    parser = argparse.ArgumentParser(description='微调ASR模型的参数')
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0,1], help='使用的GPU ID列表')
+    parser.add_argument('--model_name_or_path', type=str, default='microsoft/Phi-4-multimodal-instruct', help='预训练模型路径或名称')
+    parser.add_argument('--catslu_data_path', type=str, default="data/aishell/train.csv", help='CATSLU数据集路径')
+    parser.add_argument('--keywords_dir', type=str, default="data/catslu", help='关键词目录')
+    parser.add_argument('--use_flash_attention', action='store_true', default=True, help='是否使用Flash Attention')
+    parser.add_argument('--output_dir', type=str, default='asr/model/new', help='输出目录')
+    parser.add_argument('--batch_size', type=int, default=2, help='总批次大小')
+    parser.add_argument('--batch_size_per_gpu', type=int, default=1, help='每个GPU的批次大小')
+    parser.add_argument('--num_train_epochs', type=int, default=1, help='训练轮数')
+    parser.add_argument('--learning_rate', type=float, default=4.0e-5, help='学习率')
+    parser.add_argument('--wd', type=float, default=0.01, help='权重衰减')
+    parser.add_argument('--tqdm_enabled', action='store_true', default=True, help='是否启用tqdm进度条')
+    parser.add_argument('--device_map_path', type=str, default='asr/finetune/device_map.json', help='设备映射配置文件路径')
+    parser.add_argument('--use_keywords', action='store_true', default=True, help='是否使用关键词')
+    parser.add_argument('--num_keywords', type=int, default=0, help='随机选择的关键词数量，0表示使用全部关键词')
+    parser.add_argument('--num_sentences', type=int, default=0, help='随机选择的语句数量，0表示使用全部语句')
+    parser.add_argument('--randomize_domain', action='store_true', default=True, help='是否随机指定领域给训练资料')
+    return parser.parse_args()
 
-USE_KEYWORDS = True
-INTENT_IN_PROMPT = True
+# 全局参数设置
+args = parse_args()
+GPU_IDS = args.gpu_ids
+MODEL_NAME_OR_PATH = args.model_name_or_path
+CATSLU_DATA_PATH = args.catslu_data_path
+KEYWORDS_DIR = args.keywords_dir
+USE_FLASH_ATTENTION = args.use_flash_attention
+OUTPUT_DIR = args.output_dir
+BATCH_SIZE = args.batch_size
+BATCH_SIZE_PER_GPU = args.batch_size_per_gpu
+NUM_TRAIN_EPOCHS = args.num_train_epochs
+LEARNING_RATE = args.learning_rate
+WD = args.wd
+TQDM_ENABLED = args.tqdm_enabled
+DEVICE_MAP_PATH = args.device_map_path
+
+USE_KEYWORDS = args.use_keywords
 # 关键词随机选择参数
-NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
+NUM_KEYWORDS = args.num_keywords  # 随机选择的关键词数量，设为0表示使用全部关键词
 # 随机选择语句参数
-NUM_SENTENCES = 1000  # 随机选择的语句数量，设为0表示使用全部语句
+NUM_SENTENCES = args.num_sentences  # 随机选择的语句数量，设为0表示使用全部语句
 # 随机指定领域参数
-RANDOMIZE_DOMAIN = True  # 设置为True时会随机指定领域给训练资料
+RANDOMIZE_DOMAIN = args.randomize_domain  # 设置为True时会随机指定领域给训练资料
 # 基础任务指令
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
@@ -192,10 +215,7 @@ class CatsluKeywordsDataset(Dataset):
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
-            if INTENT_IN_PROMPT:
-                return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=actual_domain, keywords=keywords_str)
-            else:
-                return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
+            return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=actual_domain, keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
 

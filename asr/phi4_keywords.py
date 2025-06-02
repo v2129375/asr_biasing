@@ -18,22 +18,52 @@ from torch.cuda.amp import autocast
 # 导入评分模块
 from score import evaluate_asr
 
-
-USE_KEYWORDS = True
-INTENT_IN_PROMPT = True
-# 关键词随机选择参数
+# 定义所有全局变量及其默认值
+USE_KEYWORDS = True  # 是否使用关键词
 NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
-# 基础任务指令（与微调代码保持一致）
-BASE_INSTRUCTION = "Transcribe the audio clip into text."
-# 带关键词的任务指令模板（与微调代码保持一致）
-# KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
-KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
-input_data_path = "intent/exp/phi4_intent_result.csv"
-model_path = "asr/model/aishell1p2keywords"
-output_data_path = f"asr/exp/{os.path.basename(model_path)}.csv"
-base_model_path = "microsoft/Phi-4-multimodal-instruct"
-DEVICE_MAP_PATH = 'asr/finetune/device_map.json'
+input_data_path = "intent/exp/phi4_intent_result.csv"  # 输入数据路径
+model_path = "asr/model/new"  # 模型路径
+output_data_path = f"asr/exp/{os.path.basename(model_path)}.csv"  # 输出数据路径
+base_model_path = "microsoft/Phi-4-multimodal-instruct"  # 基础模型路径
+DEVICE_MAP_PATH = 'asr/finetune/device_map.json'  # 设备映射文件路径
+DEFAULT_GPUS = '0,1'  # 默认使用的GPU
+DEFAULT_BATCH_SIZE = 1  # 默认批处理大小
+BASE_INSTRUCTION = "Transcribe the audio clip into text."  # 基础任务指令（与微调代码保持一致）
+KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."  # 带关键词的任务指令模板
+KEYWORDS_DIR = "data/catslu"  # 关键词目录
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='ASR with Phi-4 on multiple GPUs')
+    parser.add_argument('--use_keywords', type=bool, default=USE_KEYWORDS, help='Whether to use keywords')
+    parser.add_argument('--num_keywords', type=int, default=NUM_KEYWORDS, help='Number of keywords to randomly select (0 for all)')
+    parser.add_argument('--input', type=str, default=input_data_path, help='Input data path')
+    parser.add_argument('--model_path', type=str, default=model_path, help='Model path')
+    parser.add_argument('--output', type=str, default=output_data_path, help='Output data path')
+    parser.add_argument('--base_model', type=str, default=base_model_path, help='Base model path')
+    parser.add_argument('--device_map', type=str, default=DEVICE_MAP_PATH, help='Device map path')
+    parser.add_argument('--gpus', type=str, default=DEFAULT_GPUS, help='GPU IDs to use (comma-separated, e.g., "0,1,2")')
+    parser.add_argument('--batch_size', type=int, default=DEFAULT_BATCH_SIZE, help='Batch size for processing')
+    parser.add_argument('--keywords_dir', type=str, default=KEYWORDS_DIR, help='Keywords directory')
+    parser.add_argument('--base_instruction', type=str, default=BASE_INSTRUCTION, help='Base instruction for ASR')
+    parser.add_argument('--keyword_template', type=str, default=KEYWORD_INSTRUCTION_TEMPLATE, help='Keyword instruction template')
+    return parser.parse_args()
+
+# 解析命令行参数
+args = parse_args()
+
+# 更新全局变量
+USE_KEYWORDS = args.use_keywords
+NUM_KEYWORDS = args.num_keywords
+input_data_path = args.input
+model_path = args.model_path
+output_data_path = args.output
+base_model_path = args.base_model
+DEVICE_MAP_PATH = args.device_map
+DEFAULT_GPUS = args.gpus
+DEFAULT_BATCH_SIZE = args.batch_size
+KEYWORDS_DIR = args.keywords_dir
+BASE_INSTRUCTION = args.base_instruction
+KEYWORD_INSTRUCTION_TEMPLATE = args.keyword_template
 
 class Phi4:
     def __init__(self, gpu_ids=None, batch_size=1):
@@ -86,7 +116,7 @@ class Phi4:
             for key, device in self.model.hf_device_map.items():
                 print(f"  {key}: {device}")
     
-    def load_keywords(self, keywords_dir="data/catslu"):
+    def load_keywords(self, keywords_dir=KEYWORDS_DIR):
         """加载各领域的关键词文件"""
         keyword_files = {
             'video': os.path.join(keywords_dir, 'keyword_video.txt'),
@@ -134,10 +164,7 @@ class Phi4:
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
             keywords_str = ', '.join(domain_keywords)
-            if INTENT_IN_PROMPT:
-                return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=intent, keywords=keywords_str)
-            else:
-                return KEYWORD_INSTRUCTION_TEMPLATE.format(keywords=keywords_str)
+            return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=intent, keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
     
@@ -226,17 +253,8 @@ class Phi4:
         results = self.process_batch([(audio, samplerate, intent)])
         return results[0]
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='ASR with Phi-4 on multiple GPUs')
-    parser.add_argument('--gpus', type=str, default='0,1', help='GPU IDs to use (comma-separated, e.g., "0,1,2")')
-    parser.add_argument('--batch_size', type=int, default=1, help='Batch size for processing')
-    parser.add_argument('--input', type=str, default=input_data_path, help='Input data path')
-    parser.add_argument('--output', type=str, default=output_data_path, help='Output data path')
-    return parser.parse_args()
-
 if __name__ == "__main__":
-    # 解析命令行参数
-    args = parse_args()
+    
     
     # 输出关键词使用情况
     print(f"使用关键词: {USE_KEYWORDS}")
@@ -247,17 +265,17 @@ if __name__ == "__main__":
             print(f"使用所有可用的关键词")
     
     # 解析GPU ID列表
-    gpu_ids = [int(gpu_id.strip()) for gpu_id in args.gpus.split(',')]
+    gpu_ids = [int(gpu_id.strip()) for gpu_id in DEFAULT_GPUS.split(',')]
     
     # 使用指定的GPU
-    phi4 = Phi4(gpu_ids=gpu_ids, batch_size=args.batch_size)
+    phi4 = Phi4(gpu_ids=gpu_ids, batch_size=DEFAULT_BATCH_SIZE)
     phi4.load_phi4()
     
     # 加载关键词
-    phi4.load_keywords("data/catslu")
+    phi4.load_keywords(KEYWORDS_DIR)
     
     # 读取数据文件
-    df = pd.read_csv(args.input)
+    df = pd.read_csv(input_data_path)
     
     # 添加asr列
     df['asr'] = ''
@@ -307,9 +325,9 @@ if __name__ == "__main__":
             batch_indices = []
     
     # 确保输出目录存在
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    os.makedirs(os.path.dirname(output_data_path), exist_ok=True)
     # 保存结果到csv
-    df.to_csv(args.output, index=False)
+    df.to_csv(output_data_path, index=False)
     
     # 释放资源
     phi4.release_phi4()
@@ -318,7 +336,9 @@ if __name__ == "__main__":
     print("\n开始评估ASR结果...")
 
     # 从保存的结果文件中读取数据进行评估
-    results_df = pd.read_csv(args.output)
-    evaluation_results = evaluate_asr(results_df, cal_keyword_wer=True, print_errors=True)
+    results_df = pd.read_csv(output_data_path)
+    # 构建输出JSON文件路径，将CSV文件扩展名改为JSON
+    output_json_path = output_data_path.replace('.csv', '.json')
+    evaluation_results = evaluate_asr(results_df, cal_keyword_wer=True, print_errors=True, output_file=output_json_path)
     
     
