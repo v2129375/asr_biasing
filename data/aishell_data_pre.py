@@ -6,7 +6,7 @@ import re
 from opencc import OpenCC
 from pathlib import Path
 
-local_path = "/Data/dataset/ASR_dataset/aishell/data_aishell"
+local_path = "/home/v2129375/dataset/aishell1/data_aishell"
 dir_path = "data/aishell"
 train_path = f"{dir_path}/train.csv"
 dev_path = f"{dir_path}/dev.csv"
@@ -85,6 +85,6 @@ for file in tqdm(test_files_path):
         res_test.append((file, _d[file_name]))
 
 Path.mkdir(Path(dir_path),exist_ok=True)
-pandas.DataFrame(res_train,columns=["path","text"]).to_csv(train_path,index=False)
-pandas.DataFrame(res_dev,columns=["path","text"]).to_csv(dev_path,index=False)
-pandas.DataFrame(res_test,columns=["path","text"]).to_csv(test_path,index=False)
+pandas.DataFrame(res_train,columns=["path","manual_transcript"]).to_csv(train_path,index=False)
+pandas.DataFrame(res_dev,columns=["path","manual_transcript"]).to_csv(dev_path,index=False)
+pandas.DataFrame(res_test,columns=["path","manual_transcript"]).to_csv(test_path,index=False)

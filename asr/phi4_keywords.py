@@ -29,8 +29,8 @@ BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
 KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
 input_data_path = "intent/exp/phi4_intent_result.csv"
-output_data_path = "asr/exp/phi4_keywords_asr_result_ori.csv"
-model_path = "asr/model/p2keywords"
+model_path = "asr/model/aishell1p2keywords"
+output_data_path = f"asr/exp/{os.path.basename(model_path)}.csv"
 base_model_path = "microsoft/Phi-4-multimodal-instruct"
 DEVICE_MAP_PATH = 'asr/finetune/device_map.json'
 
@@ -316,15 +316,9 @@ if __name__ == "__main__":
     
     # 调用评分函数进行ASR结果评估
     print("\n开始评估ASR结果...")
-    try:
-        # 从保存的结果文件中读取数据进行评估
-        results_df = pd.read_csv(args.output)
-        evaluation_results = evaluate_asr(results_df, cal_keyword_wer=True, print_errors=True)
-        print(f"\n评估完成！")
-        print(f"字符错误率 (CER): {evaluation_results['cer']:.4f}")
-        if 'keyword_wer' in evaluation_results:
-            print(f"关键词错误率 (Keyword WER): {evaluation_results['keyword_wer']:.4f}")
-    except Exception as e:
-        print(f"评估过程中出现错误: {e}")
+
+    # 从保存的结果文件中读取数据进行评估
+    results_df = pd.read_csv(args.output)
+    evaluation_results = evaluate_asr(results_df, cal_keyword_wer=True, print_errors=True)
     
     
