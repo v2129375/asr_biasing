@@ -35,8 +35,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='微调ASR模型的参数')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0,1], help='使用的GPU ID列表')
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/Phi-4-multimodal-instruct', help='预训练模型路径或名称')
-    parser.add_argument('--catslu_data_path', type=str, default="data/aishell_keywords/train.csv", help='CATSLU数据集路径')
-    parser.add_argument('--keywords_dir', type=str, default="data/aishell_keywords", help='关键词目录')
+    parser.add_argument('--data_path', type=str, default="data/catslu/train.csv", help='训练数据集路径')
+    parser.add_argument('--keywords_dir', type=str, default="data/catslu", help='关键词目录')
     parser.add_argument('--use_flash_attention', action='store_true', default=True, help='是否使用Flash Attention')
     parser.add_argument('--output_dir', type=str, default='asr/model/new', help='输出目录')
     parser.add_argument('--batch_size', type=int, default=2, help='总批次大小')
@@ -49,14 +49,15 @@ def parse_args():
     parser.add_argument('--use_keywords', action='store_true', default=True, help='是否使用关键词')
     parser.add_argument('--num_keywords', type=int, default=0, help='随机选择的关键词数量，0表示使用全部关键词')
     parser.add_argument('--num_sentences', type=int, default=0, help='随机选择的语句数量，0表示使用全部语句')
-    parser.add_argument('--randomize_domain', action='store_true', default=True, help='是否随机指定领域给训练资料')
+    parser.add_argument('--randomize_domain', action='store_true', default=False, help='是否随机指定领域给训练资料')
     return parser.parse_args()
 
 # 全局参数设置
 args = parse_args()
 GPU_IDS = args.gpu_ids
 MODEL_NAME_OR_PATH = args.model_name_or_path
-CATSLU_DATA_PATH = args.catslu_data_path
+BASE_MODEL_NAME_OR_PATH = "microsoft/Phi-4-multimodal-instruct"
+DATA_PATH = args.data_path
 KEYWORDS_DIR = args.keywords_dir
 USE_FLASH_ATTENTION = args.use_flash_attention
 OUTPUT_DIR = args.output_dir
@@ -68,6 +69,7 @@ WD = args.wd
 TQDM_ENABLED = args.tqdm_enabled
 DEVICE_MAP_PATH = args.device_map_path
 
+
 USE_KEYWORDS = args.use_keywords
 # 关键词随机选择参数
 NUM_KEYWORDS = args.num_keywords  # 随机选择的关键词数量，设为0表示使用全部关键词
@@ -75,10 +77,14 @@ NUM_KEYWORDS = args.num_keywords  # 随机选择的关键词数量，设为0表�
 NUM_SENTENCES = args.num_sentences  # 随机选择的语句数量，设为0表示使用全部语句
 # 随机指定领域参数
 RANDOMIZE_DOMAIN = args.randomize_domain  # 设置为True时会随机指定领域给训练资料
+
+
+
+
 # 基础任务指令
 BASE_INSTRUCTION = "Transcribe the audio clip into text."
 # 带关键词的任务指令模板
-KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."
+KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"
 # 答案后缀标记，用于标识生成结束
 ANSWER_SUFFIX = "<|end|><|endoftext|>"
 # 标签忽略索引值，用于损失计算中忽略某些位置
@@ -134,9 +140,47 @@ class CatsluKeywordsDataset(Dataset):
         if NUM_SENTENCES > 0 and self.training:
             total_samples = len(self.data)
             if NUM_SENTENCES < total_samples:
-                selected_indices = random.sample(range(total_samples), NUM_SENTENCES)
-                self.data = self.data.iloc[selected_indices].reset_index(drop=True)
-                print(f"随机选择了 {NUM_SENTENCES} 条语句进行训练，原始数据集大小: {total_samples}")
+                if self.has_source_column:
+                    # 根据source类别进行平衡选择
+                    print("根据source类别进行平衡选择训练语句")
+                    source_counts = self.data['source'].value_counts()
+                    print(f"各类别原始样本数量: {source_counts.to_dict()}")
+                    
+                    selected_indices = []
+                    total_selected = 0
+                    
+                    # 计算每个类别应选择的样本数量（按比例分配）
+                    for i, (source, count) in enumerate(source_counts.items()):
+                        if i == len(source_counts) - 1:  # 最后一个类别，分配剩余的所有样本
+                            samples_for_this_source = NUM_SENTENCES - total_selected
+                        else:
+                            # 按比例计算每个类别的样本数
+                            proportion = count / total_samples
+                            samples_for_this_source = int(NUM_SENTENCES * proportion)
+                        
+                        # 确保不超过该类别的总样本数
+                        samples_for_this_source = min(samples_for_this_source, count)
+                        
+                        if samples_for_this_source > 0:
+                            # 从该类别中随机选择样本
+                            source_data_indices = self.data[self.data['source'] == source].index.tolist()
+                            selected_source_indices = random.sample(source_data_indices, samples_for_this_source)
+                            selected_indices.extend(selected_source_indices)
+                            total_selected += samples_for_this_source
+                            print(f"从 '{source}' 类别选择 {samples_for_this_source} 个样本")
+                    
+                    # 重新索引数据集
+                    self.data = self.data.loc[selected_indices].reset_index(drop=True)
+                    
+                    # 输出最终的类别分布
+                    final_source_counts = self.data['source'].value_counts()
+                    print(f"选择后各类别样本数量: {final_source_counts.to_dict()}")
+                    print(f"总共选择了 {len(self.data)} 条语句进行训练，原始数据集大小: {total_samples}")
+                else:
+                    # 没有source列，使用原有的随机选择方式
+                    selected_indices = random.sample(range(total_samples), NUM_SENTENCES)
+                    self.data = self.data.iloc[selected_indices].reset_index(drop=True)
+                    print(f"随机选择了 {NUM_SENTENCES} 条语句进行训练，原始数据集大小: {total_samples}")
             else:
                 print(f"NUM_SENTENCES ({NUM_SENTENCES}) 大于等于数据集总大小 ({total_samples})，使用全部语句")
         
@@ -214,7 +258,7 @@ class CatsluKeywordsDataset(Dataset):
         
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
-            keywords_str = ', '.join(domain_keywords)
+            keywords_str = ' '.join(domain_keywords)
             return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=actual_domain, keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
@@ -432,7 +476,7 @@ def main():
     """主函数，包含模型训练的完整流程"""
 
     processor = AutoProcessor.from_pretrained(
-        MODEL_NAME_OR_PATH,
+        BASE_MODEL_NAME_OR_PATH,
         trust_remote_code=True,
     )
     # 创建模型
@@ -448,7 +492,7 @@ def main():
     # 创建训练数据集
     train_dataset = CatsluKeywordsDataset(
         processor,
-        data_path=CATSLU_DATA_PATH,
+        data_path=DATA_PATH,
         keywords_dir=KEYWORDS_DIR,
         split="train",
         world_size=1
@@ -467,6 +511,7 @@ def main():
     # 输出语句选择信息
     if NUM_SENTENCES > 0:
         print(f"Random sentences selection: enabled (training with {NUM_SENTENCES} sentences)")
+        print(f"Class balanced selection: enabled (samples will be balanced across source categories)")
     else:
         print(f"Using all available sentences for training")
     

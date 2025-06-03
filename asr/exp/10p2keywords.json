@@ -1,0 +1,23 @@
+{
+    "overall": {
+        "cer": 3.059102715332873,
+        "keyword_wer": 0.1984126984126984
+    },
+    "categories": {
+        "video": {
+            "sample_count": 157,
+            "cer": 2.0207313245848275,
+            "keyword_wer": 0.14012738853503184
+        },
+        "music": {
+            "sample_count": 101,
+            "cer": 2.022731586345448,
+            "keyword_wer": 0.297029702970297
+        },
+        "city": {
+            "sample_count": 120,
+            "cer": 5.289917651792652,
+            "keyword_wer": 0.19166666666666668
+        }
+    }
+}

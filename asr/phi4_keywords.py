@@ -23,13 +23,12 @@ USE_KEYWORDS = True  # 是否使用关键词
 NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
 input_data_path = "intent/exp/phi4_intent_result.csv"  # 输入数据路径
 model_path = "asr/model/new"  # 模型路径
-output_data_path = f"asr/exp/{os.path.basename(model_path)}.csv"  # 输出数据路径
 base_model_path = "microsoft/Phi-4-multimodal-instruct"  # 基础模型路径
 DEVICE_MAP_PATH = 'asr/finetune/device_map.json'  # 设备映射文件路径
 DEFAULT_GPUS = '0,1'  # 默认使用的GPU
 DEFAULT_BATCH_SIZE = 1  # 默认批处理大小
 BASE_INSTRUCTION = "Transcribe the audio clip into text."  # 基础任务指令（与微调代码保持一致）
-KEYWORD_INSTRUCTION_TEMPLATE = "<{intent}> {keywords} </{intent}> Transcribe the audio clip into text."  # 带关键词的任务指令模板
+KEYWORD_INSTRUCTION_TEMPLATE = "Transcribe the audio clip into text. Pay attention to these keywords: {keywords}"  # 带关键词的任务指令模板
 KEYWORDS_DIR = "data/catslu"  # 关键词目录
 
 def parse_args():
@@ -38,7 +37,6 @@ def parse_args():
     parser.add_argument('--num_keywords', type=int, default=NUM_KEYWORDS, help='Number of keywords to randomly select (0 for all)')
     parser.add_argument('--input', type=str, default=input_data_path, help='Input data path')
     parser.add_argument('--model_path', type=str, default=model_path, help='Model path')
-    parser.add_argument('--output', type=str, default=output_data_path, help='Output data path')
     parser.add_argument('--base_model', type=str, default=base_model_path, help='Base model path')
     parser.add_argument('--device_map', type=str, default=DEVICE_MAP_PATH, help='Device map path')
     parser.add_argument('--gpus', type=str, default=DEFAULT_GPUS, help='GPU IDs to use (comma-separated, e.g., "0,1,2")')
@@ -56,7 +54,7 @@ USE_KEYWORDS = args.use_keywords
 NUM_KEYWORDS = args.num_keywords
 input_data_path = args.input
 model_path = args.model_path
-output_data_path = args.output
+output_data_path = f"asr/exp/{os.path.basename(model_path)}.csv"  # 输出数据路径
 base_model_path = args.base_model
 DEVICE_MAP_PATH = args.device_map
 DEFAULT_GPUS = args.gpus
@@ -163,7 +161,7 @@ class Phi4:
         
         if domain_keywords and USE_KEYWORDS:
             # 使用该领域的关键词（可能是随机选择的）
-            keywords_str = ', '.join(domain_keywords)
+            keywords_str = ' '.join(domain_keywords)
             return KEYWORD_INSTRUCTION_TEMPLATE.format(intent=intent, keywords=keywords_str)
         else:
             return BASE_INSTRUCTION
