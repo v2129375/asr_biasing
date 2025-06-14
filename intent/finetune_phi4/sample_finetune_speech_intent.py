@@ -6,7 +6,6 @@ scipy==1.15.1
 peft==0.13.2
 backoff==2.2.1
 transformers==4.46.1
-accelerate==1.3.0
 """
 
 import argparse
@@ -19,8 +18,6 @@ import torch
 import numpy as np
 from sklearn.metrics import classification_report, accuracy_score, f1_score
 import soundfile as sf
-from accelerate import Accelerator
-from accelerate.utils import gather_object
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from transformers import (
@@ -33,6 +30,8 @@ from transformers import (
     StoppingCriteriaList,
 )
 
+# Device map配置文件路径
+DEVICE_MAP_CONFIG_PATH = "intent/finetune_phi4/device_map.json"
 
 # 任务指令
 INSTRUCTION = """
@@ -68,6 +67,30 @@ _IGNORE_INDEX = -100
 # 训练和评估数据集大小限制
 _TRAIN_SIZE = None  # 使用全部训练数据
 _EVAL_SIZE = 200
+
+
+def load_device_map(config_path):
+    """
+    从JSON文件加载device_map配置
+    
+    Args:
+        config_path: JSON配置文件路径
+        
+    Returns:
+        device_map: 设备映射配置，如果文件不存在则返回'auto'
+    """
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                device_map = json.load(f)
+            print(f"从 {config_path} 加载device_map配置: {device_map}")
+            return device_map
+        else:
+            print(f"Device map配置文件 {config_path} 不存在，使用默认配置 'auto'")
+            return 'auto'
+    except Exception as e:
+        print(f"读取device_map配置文件时出错: {e}，使用默认配置 'auto'")
+        return 'auto'
 
 
 class MultipleTokenBatchStoppingCriteria(StoppingCriteria):
@@ -106,7 +129,7 @@ class MultipleTokenBatchStoppingCriteria(StoppingCriteria):
 
 class CatsluDataset(Dataset):
     """CATSLU数据集类，用于语音意图分类任务"""
-    def __init__(self, processor, data_path, split="train", rank=0, world_size=1):
+    def __init__(self, processor, data_path, split="train"):
         """
         初始化CATSLU数据集
         
@@ -114,8 +137,6 @@ class CatsluDataset(Dataset):
             processor: 模型处理器
             data_path: CSV数据文件路径
             split: 数据集划分，'train'或'eval'
-            rank: 分布式训练的进程排名
-            world_size: 分布式训练的总进程数
         """
         # 读取CSV文件
         self.data = pd.read_csv(data_path)
@@ -126,14 +147,6 @@ class CatsluDataset(Dataset):
         # 提取所有唯一的意图类别（source列）
         self.intent_categories = sorted(self.data['source'].unique().tolist())
         self.intent_to_id = {intent: idx for idx, intent in enumerate(self.intent_categories)}
-        
-        # 如果在分布式环境中，分片数据集
-        if world_size > 1:
-            total_len = len(self.data)
-            per_worker = total_len // world_size
-            start_idx = rank * per_worker
-            end_idx = start_idx + per_worker if rank < world_size - 1 else total_len
-            self.data = self.data.iloc[start_idx:end_idx]
 
     def __len__(self):
         return len(self.data)
@@ -304,16 +317,22 @@ def catslu_collate_fn(batch):
     )
 
 
-def create_model(model_name_or_path, use_flash_attention=False):
+def create_model(model_name_or_path, use_flash_attention=False, device_map='auto'):
     """
-    创建因果语言模型，可选择使用flash attention加速
+    创建因果语言模型，可选择使用flash attention加速和自定义device_map
+    
+    Args:
+        model_name_or_path: 模型名称或路径
+        use_flash_attention: 是否使用flash attention
+        device_map: 设备映射配置
     """
     model = AutoModelForCausalLM.from_pretrained(
         model_name_or_path,
         torch_dtype=torch.bfloat16 if use_flash_attention else torch.float32,
         _attn_implementation='flash_attention_2' if use_flash_attention else 'sdpa',
         trust_remote_code=True,
-    ).to('cuda')
+        device_map=device_map,
+    )
 
     return model
 
@@ -325,9 +344,6 @@ def evaluate(
     """
     评估模型在意图分类任务上的性能
     """
-    rank = int(os.environ.get('RANK', 0))
-    local_rank = int(os.environ.get('LOCAL_RANK', 0))
-
     model.eval()  # 设置为评估模式
     all_generated_intents = []  # 存储生成的意图
     all_labels = []  # 存储实际标签
@@ -347,16 +363,16 @@ def evaluate(
     # 定义停止标记
     stop_tokens = ["<|end|>", processor.tokenizer.eos_token]
     stop_tokens_ids = processor.tokenizer(stop_tokens, add_special_tokens=False, padding="longest", return_tensors="pt")["input_ids"]
-    stop_tokens_ids = stop_tokens_ids.to(f'cuda:{local_rank}')
+    # 获取模型的第一个参数设备作为目标设备
+    model_device = next(model.parameters()).device
+    stop_tokens_ids = stop_tokens_ids.to(model_device)
 
     # 遍历评估数据集
-    for inputs in tqdm(
-        eval_dataloader, disable=(rank != 0) or disable_tqdm, desc='running eval'
-    ):
+    for inputs in tqdm(eval_dataloader, disable=disable_tqdm, desc='running eval'):
         # 设置停止条件
         stopping_criteria=StoppingCriteriaList([MultipleTokenBatchStoppingCriteria(stop_tokens_ids, batch_size=inputs.input_ids.size(0))])
         inputs_to_model = {k: v for k, v in inputs.items() if k != 'intent'}
-        inputs_to_model = {k: v.to(f'cuda:{local_rank}') if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
+        inputs_to_model = {k: v.to(model_device) if isinstance(v, torch.Tensor) else v for k, v in inputs_to_model.items()}
         
         # 生成意图预测
         generated_ids = model.generate(
@@ -364,6 +380,9 @@ def evaluate(
             eos_token_id=processor.tokenizer.eos_token_id, 
             max_new_tokens=16,  # 意图分类只需要较短的生成长度
             stopping_criteria=stopping_criteria,
+            do_sample=False,  # 使用贪婪解码
+            num_logits_to_keep=1,  # 只保留最后一个token的logits
+            pad_token_id=processor.tokenizer.eos_token_id,  # 设置pad_token_id
         )
 
         # 处理停止标记位置
@@ -388,36 +407,27 @@ def evaluate(
         labels = [processor.decode(_label_ids[_label_ids != 0]).removesuffix(ANSWER_SUFFIX) for _label_ids in inputs["labels"]]
         all_labels.extend(labels)
 
-    # 在分布式环境中收集所有进程的结果
-    all_generated_intents = gather_object(all_generated_intents)
-    all_labels = gather_object(all_labels)
+    # 计算分类指标
+    accuracy = accuracy_score(y_true=all_labels, y_pred=all_generated_intents)
+    f1 = f1_score(y_true=all_labels, y_pred=all_generated_intents, average='weighted')
+    report = classification_report(y_true=all_labels, y_pred=all_generated_intents, output_dict=True, digits=4)
     
-    # 只在主进程中计算评估指标
-    if rank == 0:
-        assert len(all_generated_intents) == len(all_labels)
-        
-        # 计算分类指标
-        accuracy = accuracy_score(y_true=all_labels, y_pred=all_generated_intents)
-        f1 = f1_score(y_true=all_labels, y_pred=all_generated_intents, average='weighted')
-        report = classification_report(y_true=all_labels, y_pred=all_generated_intents, output_dict=True, digits=4)
-        
-        print(f"Accuracy: {accuracy:.4f}")
-        print(f"F1 Score: {f1:.4f}")
-        print(classification_report(y_true=all_labels, y_pred=all_generated_intents, digits=4))
-        
-        if save_path:
-            with open(save_path, 'w') as f:
-                save_dict = {
-                    'all_generated_intents': all_generated_intents,
-                    'all_labels': all_labels,
-                    'accuracy': accuracy,
-                    'f1': f1,
-                    'report': report,
-                }
-                json.dump(save_dict, f)
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"F1 Score: {f1:.4f}")
+    print(classification_report(y_true=all_labels, y_pred=all_generated_intents, digits=4))
+    
+    if save_path:
+        with open(save_path, 'w') as f:
+            save_dict = {
+                'all_generated_intents': all_generated_intents,
+                'all_labels': all_labels,
+                'accuracy': accuracy,
+                'f1': f1,
+                'report': report,
+            }
+            json.dump(save_dict, f)
 
-        return accuracy, f1
-    return None, None
+    return accuracy, f1
 
 
 def main():
@@ -432,7 +442,7 @@ def main():
     parser.add_argument(
         "--catslu_data_path",
         type=str,
-        default="data/catslu/train.csv",
+        default="tts/tts_data/sentences_audio.csv",
         help="Path to the CATSLU dataset CSV file",
     )
     parser.add_argument(
@@ -442,7 +452,7 @@ def main():
         help="Number of samples to use for evaluation",
     )
     parser.add_argument('--use_flash_attention', action='store_true', help='Use Flash Attention')
-    parser.add_argument('--output_dir', type=str, default='intent/model/', help='Output directory')
+    parser.add_argument('--output_dir', type=str, default='intent/model/new/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument(
         '--batch_size_per_gpu',
@@ -462,28 +472,23 @@ def main():
     global _EVAL_SIZE
     _EVAL_SIZE = args.eval_size
 
-    # 初始化加速器，用于分布式训练
-    accelerator = Accelerator()
-
-    # 确保主进程先加载模型
-    with accelerator.local_main_process_first():
-        # 加载处理器
-        processor = AutoProcessor.from_pretrained(
-            args.model_name_or_path,
-            trust_remote_code=True,
-        )
-        # 创建模型
-        model = create_model(
-            args.model_name_or_path,
-            use_flash_attention=args.use_flash_attention,
-        )
+    # 加载device_map配置
+    device_map = load_device_map(DEVICE_MAP_CONFIG_PATH)
+    
+    # 加载处理器
+    processor = AutoProcessor.from_pretrained(
+        args.model_name_or_path,
+        trust_remote_code=True,
+    )
+    # 创建模型
+    model = create_model(
+        args.model_name_or_path,
+        use_flash_attention=args.use_flash_attention,
+        device_map=device_map,
+    )
 
     # 设置模型使用语音适配器
     model.set_lora_adapter('speech')
-
-    # 获取分布式训练的排名和总进程数
-    rank = int(os.environ.get('RANK', 0))
-    world_size = int(os.environ.get('WORLD_SIZE', 1))
     
     # 读取完整数据集
     full_dataset = pd.read_csv(args.catslu_data_path)
@@ -512,33 +517,23 @@ def main():
     eval_dataset = CatsluDataset(
         processor,
         data_path=eval_path,
-        split="eval",
-        rank=rank,
-        world_size=world_size
+        split="eval"
     )
     
     # 创建训练数据集
     train_dataset = CatsluDataset(
         processor,
         data_path=train_path,
-        split="train",
-        rank=rank,
-        world_size=1  # 训练集不做分片处理
+        split="train"
     )
     
     # 输出数据集统计信息
-    if accelerator.is_main_process:
-        print(f"Train dataset size: {len(train_dataset)}")
-        print(f"Eval dataset size: {len(eval_dataset)}")
-        print(f"Intent categories: {train_dataset.intent_categories}")
+    print(f"Train dataset size: {len(train_dataset)}")
+    print(f"Eval dataset size: {len(eval_dataset)}")
+    print(f"Intent categories: {train_dataset.intent_categories}")
 
-    # 计算GPU数量并进行批处理大小断言
-    num_gpus = accelerator.num_processes
-    print(f'training on {num_gpus} GPUs')
-    assert (
-        args.batch_size % (num_gpus * args.batch_size_per_gpu) == 0
-    ), 'Batch size must be divisible by the number of GPUs'
-    gradient_accumulation_steps = args.batch_size // (num_gpus * args.batch_size_per_gpu)
+    # 简化批处理大小计算
+    gradient_accumulation_steps = args.batch_size // args.batch_size_per_gpu
 
     # 根据是否使用flash attention选择精度
     if args.use_flash_attention:
@@ -576,7 +571,6 @@ def main():
         deepspeed=None,
         disable_tqdm=not args.tqdm,
         dataloader_num_workers=1,
-        ddp_find_unused_parameters=True,  # 用于未使用的SigLIP层
     )
 
     # 微调前先评估
@@ -591,9 +585,8 @@ def main():
         disable_tqdm=not args.tqdm,
         eval_batch_size=args.batch_size_per_gpu,
     )
-    if accelerator.is_main_process:
-        print(f'Accuracy before finetuning: {accuracy}')
-        print(f'F1 Score before finetuning: {f1}')
+    print(f'Accuracy before finetuning: {accuracy}')
+    print(f'F1 Score before finetuning: {f1}')
 
     # 创建Trainer实例并开始训练
     trainer = Trainer(
@@ -605,9 +598,7 @@ def main():
 
     trainer.train()
     trainer.save_model()
-    if accelerator.is_main_process:
-        processor.save_pretrained(training_args.output_dir)
-    accelerator.wait_for_everyone()
+    processor.save_pretrained(training_args.output_dir)
 
     # 微调后评估（加载保存的检查点）
     # 首先尝试清理GPU内存
@@ -622,7 +613,8 @@ def main():
         torch_dtype=torch.bfloat16 if args.use_flash_attention else torch.float32,
         trust_remote_code=True,
         _attn_implementation='flash_attention_2' if args.use_flash_attention else 'sdpa',
-    ).to('cuda')
+        device_map=device_map,
+    )
 
     # 进行微调后的评估
     accuracy, f1 = evaluate(
@@ -633,9 +625,8 @@ def main():
         disable_tqdm=not args.tqdm,
         eval_batch_size=args.batch_size_per_gpu,
     )
-    if accelerator.is_main_process:
-        print(f'Accuracy after finetuning: {accuracy}')
-        print(f'F1 Score after finetuning: {f1}')
+    print(f'Accuracy after finetuning: {accuracy}')
+    print(f'F1 Score after finetuning: {f1}')
     
     # 清理临时文件
     if _EVAL_SIZE is not None and _EVAL_SIZE < total_samples:
