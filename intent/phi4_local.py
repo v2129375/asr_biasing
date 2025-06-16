@@ -19,7 +19,7 @@ class Phi4:
     def load_phi4(self):
 
         # Define model path - 使用本地微调模型
-        model_path = "intent/model/"
+        model_path = "intent/model/new"
         base_model_path = "microsoft/Phi-4-multimodal-instruct"
 
         # Load processor from base model to get necessary configurations
@@ -62,6 +62,7 @@ class Phi4:
             **inputs,
             max_new_tokens=1000,
             generation_config=self.generation_config,
+            num_logits_to_keep=1,  # 只保留最后一个token的logits
         )
         generate_ids = generate_ids[:, inputs['input_ids'].shape[1]:]
         response = self.processor.batch_decode(
@@ -111,24 +112,21 @@ Only output one of: video, music, or city.
 
     # 使用tqdm遍历处理每条数据
     for idx, row in tqdm(df.iterrows(), total=len(df)):
-        try:
-            # 读取音频文件
-            audio, samplerate = sf.read(row['path'])
-            # 获取预测结果
-            response = phi4.process_audio(prompt, audio, samplerate)
-            # 使用正则表达式提取response中的video、music或city
-            import re
-            pattern = r'(video|music|city)'
-            match = re.search(pattern, response.lower())
-            if match:
-                response = match.group(1)
-            else:
-                response = 'city'  # 如果没有匹配到任何类别,默认为city
-            # 保存预测结果
-            df.at[idx, 'predict'] = response
-        except Exception as e:
-            print(f"处理文件 {row['path']} 时出错: {str(e)}")
-            continue
+        # 读取音频文件
+        audio, samplerate = sf.read(row['path'])
+        # 获取预测结果
+        response = phi4.process_audio(prompt, audio, samplerate)
+        # 使用正则表达式提取response中的video、music或city
+        import re
+        pattern = r'(video|music|city)'
+        match = re.search(pattern, response.lower())
+        if match:
+            response = match.group(1)
+        else:
+            response = 'city'  # 如果没有匹配到任何类别,默认为city
+        # 保存预测结果
+        df.at[idx, 'predict'] = response
+        
     # 确保输出目录存在
     os.makedirs(output_dir, exist_ok=True)
     # 保存结果到csv

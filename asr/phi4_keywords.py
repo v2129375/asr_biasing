@@ -214,6 +214,7 @@ class Phi4:
             generate_ids = self.model.generate(
                 **inputs,
                 max_new_tokens=50,
+                num_logits_to_keep=1,
                 generation_config=self.generation_config,
             )
             

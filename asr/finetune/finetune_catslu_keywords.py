@@ -34,8 +34,8 @@ from transformers import (
 def parse_args():
     parser = argparse.ArgumentParser(description='微调ASR模型的参数')
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0,1], help='使用的GPU ID列表')
-    parser.add_argument('--model_name_or_path', type=str, default='asr/model/Saishellp1keywords', help='预训练模型路径或名称')
-    parser.add_argument('--data_path', type=str, default="data/catslu/train.csv", help='训练数据集路径')
+    parser.add_argument('--model_name_or_path', type=str, default='microsoft/Phi-4-multimodal-instruct', help='预训练模型路径或名称')
+    parser.add_argument('--data_path', type=str, default="tts/tts_data/sentences_audio.csv", help='训练数据集路径')
     parser.add_argument('--keywords_dir', type=str, default="data/catslu", help='关键词目录')
     parser.add_argument('--use_flash_attention', action='store_true', default=True, help='是否使用Flash Attention')
     parser.add_argument('--output_dir', type=str, default='asr/model/new', help='输出目录')
