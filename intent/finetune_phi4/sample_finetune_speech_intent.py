@@ -451,7 +451,7 @@ def main():
         default=200,
         help="Number of samples to use for evaluation",
     )
-    parser.add_argument('--use_flash_attention', action='store_true', help='Use Flash Attention')
+    parser.add_argument('--use_flash_attention', action='store_true', default=True, help='Use Flash Attention')
     parser.add_argument('--output_dir', type=str, default='intent/model/new/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument(
