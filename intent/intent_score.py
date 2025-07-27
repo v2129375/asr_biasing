@@ -2,7 +2,7 @@
 import pandas as pd
 
 
-input_data_path = "intent/exp/phi4_intent_result.csv"
+input_data_path = "intent/exp/tts_diff_ref_phi4_intent_result.csv"
 # 读取CSV文件
 df = pd.read_csv(input_data_path)
 

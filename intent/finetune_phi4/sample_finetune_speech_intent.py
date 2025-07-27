@@ -442,7 +442,7 @@ def main():
     parser.add_argument(
         "--catslu_data_path",
         type=str,
-        default="tts/tts_data/sentences_audio.csv",
+        default="tts/tts_data/sentences_audio_diff_ref.csv",
         help="Path to the CATSLU dataset CSV file",
     )
     parser.add_argument(

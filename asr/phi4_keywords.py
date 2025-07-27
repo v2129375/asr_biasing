@@ -21,8 +21,8 @@ from score import evaluate_asr
 # 定义所有全局变量及其默认值
 USE_KEYWORDS = True  # 是否使用关键词
 NUM_KEYWORDS = 0  # 随机选择的关键词数量，设为0表示使用全部关键词
-input_data_path = "intent/exp/phi4_intent_result.csv"  # 输入数据路径
-model_path = "asr/model/new"  # 模型路径
+input_data_path = "intent/exp/tts_phi4_intent_result.csv"  # 输入数据路径
+model_path = "asr/model/TTSKeywords"  # 模型路径
 base_model_path = "microsoft/Phi-4-multimodal-instruct"  # 基础模型路径
 DEVICE_MAP_PATH = 'asr/finetune/device_map.json'  # 设备映射文件路径
 DEFAULT_GPUS = '0,1'  # 默认使用的GPU

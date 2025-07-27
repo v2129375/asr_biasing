@@ -102,7 +102,7 @@ Only output one of: video, music, or city.
 
     input_data_path = "data/catslu"
     output_dir = "intent/exp"
-    output_filename = "phi4_intent_result.csv"
+    output_filename = "tts_diff_ref_phi4_intent_result.csv"
 
     # 读取数据文件
     df = pd.read_csv(os.path.join(input_data_path, "test.csv"))

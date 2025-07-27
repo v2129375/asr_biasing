@@ -194,7 +194,7 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
 
 def main():
     """主函数，用于直接执行脚本时调用"""
-    input_file = "/home/v2129375/asr_biasing/asr/exp/aishell1p2keywords.csv"
+    input_file = "/home/v2129375/asr_biasing/asr/exp/phi4_ori_asr_result.csv"
     df = pandas.read_csv(input_file)
     # 添加输出文件参数
     output_file = input_file.replace('.csv', '.json')
