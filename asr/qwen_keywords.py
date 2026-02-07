@@ -19,6 +19,7 @@ from transformers import (
     Qwen2AudioForConditionalGeneration,
 )
 from transformers.models.qwen2_audio.modeling_qwen2_audio import Qwen2AudioEncoderLayer
+from peft import PeftModel
 
 from score import evaluate_asr
 
@@ -37,7 +38,7 @@ NUM_KEYWORDS = 0
 input_data_path = "intent/exp/tts_phi4_intent_result.csv"
 
 # 微调后 Qwen2-Audio 模型路径（与 finetune_qwen.py 中 OUTPUT_DIR 保持一致）
-model_path = "asr/model/qwen_keywords"
+model_path = "asr/model/qwen_finetune2"
 
 # 基础模型路径
 base_model_path = "Qwen/Qwen2-Audio-7B-Instruct"
@@ -202,25 +203,51 @@ class QwenASR:
                 base_model_path, trust_remote_code=True
             )
 
-        # 按你现在的要求：完全关闭 flash_attention_2，改用 eager 注意力实现
-        print(f"正在以 fp16 + eager attention 加载模型到 {self.main_device}...")
+        # 先加载基座模型，再加载微调好的 LoRA 权重（finetune 只保存了 adapter）
+        print(f"正在加载基座模型 {base_model_path} (fp16 + eager attention)...")
         try:
-            self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
-                model_path,
+            base_model = Qwen2AudioForConditionalGeneration.from_pretrained(
+                base_model_path,
                 torch_dtype=torch_dtype,
                 attn_implementation="eager",
                 trust_remote_code=True,
                 device_map={"" : self.main_device},
             )
         except TypeError:
-            # 兼容旧版 transformers（可能不支持 device_map 为 dict[""]）
-            self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
-                model_path,
+            base_model = Qwen2AudioForConditionalGeneration.from_pretrained(
+                base_model_path,
                 torch_dtype=torch_dtype,
                 attn_implementation="eager",
                 trust_remote_code=True,
                 device_map=self.main_device,
             )
+
+        # 加载微调好的 LoRA adapter 权重
+        if os.path.isfile(os.path.join(model_path, "adapter_config.json")) or os.path.isfile(
+            os.path.join(model_path, "adapter_model.safetensors")
+        ) or os.path.isfile(os.path.join(model_path, "adapter_model.bin")):
+            print(f"正在加载 LoRA 权重: {model_path}")
+            self.model = PeftModel.from_pretrained(base_model, model_path)
+        else:
+            # 目录下是完整模型（已合并 LoRA 或非 PEFT 保存），从 model_path 加载
+            del base_model
+            print(f"未检测到 LoRA adapter，从 {model_path} 加载完整模型")
+            try:
+                self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
+                    model_path,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="eager",
+                    trust_remote_code=True,
+                    device_map={"" : self.main_device},
+                )
+            except TypeError:
+                self.model = Qwen2AudioForConditionalGeneration.from_pretrained(
+                    model_path,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="eager",
+                    trust_remote_code=True,
+                    device_map=self.main_device,
+                )
 
         # 关闭 cache，略省显存
         if hasattr(self.model, "config"):
@@ -328,6 +355,10 @@ class QwenASR:
                 conversation, add_generation_prompt=True, tokenize=False
             )
 
+            # # 每次输入识别时输出 Prompt 和对应音频路径
+            # print(f"[输入] 音频路径: {path}")
+            # print(f"[输入] Prompt: {instruction}")
+
             sampling_rate = getattr(
                 self.processor.feature_extractor, "sampling_rate", 16000
             )
@@ -336,7 +367,7 @@ class QwenASR:
             with autocast(enabled=True):
                 processed = self.processor(
                     text=prompt,
-                    audios=[audio],
+                    audio=[audio],
                     return_tensors="pt",
                     padding=True,
                     sampling_rate=sampling_rate,
@@ -358,6 +389,8 @@ class QwenASR:
                     clean_up_tokenization_spaces=False,
                 )[0]
 
+                # 每次模型输出后打印原始 ASR 结果
+                print(f"[模型原始输出] {response}")
                 results.append(response)
 
             # 每条样本后做一次轻量清理，避免显存碎片
@@ -458,6 +491,8 @@ if __name__ == "__main__":
 
                 response = re.sub(r"\d+", num_to_chinese, response)
 
+                # 打印本条最终 ASR 结果（写入 CSV 的内容）
+                print(f"[{batch_indices[i]}] ASR: {response}")
                 df.at[batch_indices[i], "asr"] = response
 
             batch_data = []

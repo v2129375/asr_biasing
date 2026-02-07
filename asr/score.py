@@ -1,7 +1,24 @@
+import re
 import pandas
 import numpy as np
 import os
 import json
+
+
+def normalize_for_score(text):
+    """
+    评分前规范化：删除英文、空格和标点，只保留中文和数字。
+    对 reference 和 ASR 结果都做相同处理，使 CER 在统一规范下计算。
+    """
+    if pandas.isna(text) or text == "" or text is None:
+        return ""
+    s = str(text).strip()
+    # 删除英文字母
+    s = re.sub(r"[A-Za-z]+", "", s)
+    # 删除标点与空格（只保留中文、数字）
+    s = re.sub(r"[^\u4e00-\u9fff0-9]", "", s)
+    return s
+
 
 def cer(r: list, h: list):
     """
@@ -54,21 +71,15 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
     dict - 包含总体和各类别的 'cer' 和 'keyword_wer'(如果计算) 的字典
     """
     
-    # 打印错误的样本
+    # 打印错误的样本（与评分一致：在删除英文、空格、标点后的文本上判断关键词是否命中）
     if print_errors:
         print("\n错误识别的样本:")
         for i in range(len(df)):
-            # 检查ASR结果是否为空值
             asr_result = df["asr"][i]
             keyword = df["keyword"][i]
-            
-            # 处理空值情况
-            if pandas.isna(asr_result) or asr_result == "" or asr_result is None:
-                print(f"原始文本: {df['manual_transcript'][i]}")
-                print(f"识别结果: [空值]")
-                print(f"关键词: {keyword}")
-                print("---")
-            elif not str(keyword) in str(asr_result):
+            asr_norm = normalize_for_score(asr_result)
+            keyword_norm = normalize_for_score(keyword)
+            if not asr_norm or not keyword_norm or keyword_norm not in asr_norm:
                 print(f"原始文本: {df['manual_transcript'][i]}")
                 print(f"识别结果: {asr_result}")
                 print(f"关键词: {keyword}")
@@ -96,16 +107,12 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
         asr_result = df["asr"][i]
         category = df["source"][i]
         
-        # 处理ground为空值的情况
-        if pandas.isna(ground) or ground == "" or ground is None:
-            ground = ""
+        # 处理空值并在评分前规范化：删除英文、空格、标点
+        ground = normalize_for_score(ground)
+        asr_result_normalized = normalize_for_score(asr_result)
         
-        # 处理ASR结果为空值的情况
-        if pandas.isna(asr_result) or asr_result == "" or asr_result is None:
-            asr_result = ""
-        
-        ground = [x for x in str(ground)]
-        asr = [x for x in str(asr_result)]
+        ground = [x for x in ground]
+        asr = [x for x in asr_result_normalized]
         this_cer = cer(ground, asr)
         
         # 累加总体CER
@@ -117,9 +124,10 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
 
         if cal_keyword_wer:
             keyword = df["keyword"][i]
-            # 检查关键词错误率：如果ASR结果为空或关键词不在ASR结果中
-            if (pandas.isna(asr_result) or asr_result == "" or asr_result is None or 
-                not str(keyword) in str(asr_result)):
+            keyword_normalized = normalize_for_score(keyword)
+            # 在规范化后的 ASR 结果中检查关键词
+            if (not asr_result_normalized or not keyword_normalized or
+                keyword_normalized not in asr_result_normalized):
                 keyword_wer += 1
                 category_keyword_wer[category] += 1
 
@@ -194,7 +202,7 @@ def evaluate_asr(df, cal_keyword_wer=True, print_errors=True, output_file=None):
 
 def main():
     """主函数，用于直接执行脚本时调用"""
-    input_file = "asr/exp/qwen.csv"
+    input_file = "asr/exp/gemma-3n-e2b-it.csv"
     df = pandas.read_csv(input_file)
     # 添加输出文件参数
     output_file = input_file.replace('.csv', '.json')
