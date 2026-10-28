@@ -19,7 +19,7 @@ class Phi4:
     def load_phi4(self):
 
         # Define model path - 使用本地微调模型
-        model_path = "intent/model/new"
+        model_path = "intent/model/tts_matched"
         base_model_path = "microsoft/Phi-4-multimodal-instruct"
 
         # Load processor from base model to get necessary configurations
@@ -102,7 +102,7 @@ Only output one of: video, music, or city.
 
     input_data_path = "data/catslu"
     output_dir = "intent/exp"
-    output_filename = "tts_diff_ref_phi4_intent_result.csv"
+    output_filename = "tts_matched_phi4_intent_result.csv"
 
     # 读取数据文件
     df = pd.read_csv(os.path.join(input_data_path, "test.csv"))

@@ -31,8 +31,8 @@ from transformers import (
 )
 
 # Device map配置文件路径
-DEVICE_MAP_CONFIG_PATH = "intent/finetune_phi4/device_map.json"
-
+# DEVICE_MAP_CONFIG_PATH = "intent/finetune_phi4/device_map.json"
+DEVICE_MAP_CONFIG_PATH = ""
 # 任务指令
 INSTRUCTION = """
 Task:
@@ -442,7 +442,7 @@ def main():
     parser.add_argument(
         "--catslu_data_path",
         type=str,
-        default="tts/tts_data/sentences_audio_diff_ref.csv",
+        default="tts/tts_data/sentences_audio_matched.csv",
         help="Path to the CATSLU dataset CSV file",
     )
     parser.add_argument(
@@ -452,7 +452,7 @@ def main():
         help="Number of samples to use for evaluation",
     )
     parser.add_argument('--use_flash_attention', action='store_true', default=True, help='Use Flash Attention')
-    parser.add_argument('--output_dir', type=str, default='intent/model/new/', help='Output directory')
+    parser.add_argument('--output_dir', type=str, default='intent/model/tts_matched/', help='Output directory')
     parser.add_argument('--batch_size', type=int, default=1, help='Batch size')
     parser.add_argument(
         '--batch_size_per_gpu',
