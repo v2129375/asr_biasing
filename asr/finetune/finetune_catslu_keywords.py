@@ -33,13 +33,13 @@ from transformers import (
 # 定义命令行参数解析
 def parse_args():
     parser = argparse.ArgumentParser(description='微调ASR模型的参数')
-    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0,1], help='使用的GPU ID列表')
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0], help='使用的GPU ID列表')
     parser.add_argument('--model_name_or_path', type=str, default='microsoft/Phi-4-multimodal-instruct', help='预训练模型路径或名称')
     parser.add_argument('--data_path', type=str, default="tts/tts_data/sentences_audio.csv", help='训练数据集路径')
     parser.add_argument('--keywords_dir', type=str, default="data/catslu", help='关键词目录')
     parser.add_argument('--use_flash_attention', action='store_true', default=True, help='是否使用Flash Attention')
     parser.add_argument('--output_dir', type=str, default='asr/model/new', help='输出目录')
-    parser.add_argument('--batch_size', type=int, default=2, help='总批次大小')
+    parser.add_argument('--batch_size', type=int, default=1, help='总批次大小')
     parser.add_argument('--batch_size_per_gpu', type=int, default=1, help='每个GPU的批次大小')
     parser.add_argument('--num_train_epochs', type=int, default=1, help='训练轮数')
     parser.add_argument('--learning_rate', type=float, default=4.0e-5, help='学习率')
@@ -428,6 +428,9 @@ def catslu_collate_fn(batch):
         
     attention_mask = (input_ids != 0).long()  # 创建注意力掩码
     input_audio_embeds = cat_with_pad(input_audio_embeds_list, dim=0)  # 连接音频嵌入
+    # 只对答案位置计算 logits：被截掉的位置 label 都是 -100，不影响 loss，但可省下大量显存
+    num_logits_to_keep = max(int((l != _IGNORE_INDEX).sum()) for l in labels_list) + 1
+    labels = labels[:, -num_logits_to_keep:]
     audio_embed_sizes = torch.cat(audio_embed_sizes_list)  # 连接音频嵌入大小
 
     # 返回包含所有必要字段的批次特征
@@ -437,6 +440,7 @@ def catslu_collate_fn(batch):
             'labels': labels,
             'attention_mask': attention_mask,
             'input_audio_embeds': input_audio_embeds,
+            'num_logits_to_keep': num_logits_to_keep,
             'audio_embed_sizes': audio_embed_sizes,
             'audio_attention_mask': audio_attention_mask,
             'input_mode': 2,  # speech mode 语音模式

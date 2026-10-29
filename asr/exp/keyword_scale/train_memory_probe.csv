@@ -1,0 +1,13 @@
+size,domain,n_keywords,seq_len,mode,status,loss,peak_allocated_gb,peak_reserved_gb,safe
+orig,video,555,2978,answer_only,ok,2.2531309127807617,14.96,15.11,True
+orig,video,555,2978,full,ok,2.2531309127807617,21.53,22.25,True
+1000,video,1000,5083,answer_only,ok,2.762906312942505,15.12,15.49,True
+1000,video,1000,5083,full,ok,2.762906312942505,27.44,28.5,False
+1500,video,1500,7487,answer_only,ok,2.926241397857666,16.04,16.49,True
+1500,video,1500,7487,full,OOM,,28.66,29.97,False
+2000,video,2000,9868,answer_only,ok,2.6034746170043945,25.97,26.9,False
+2000,video,2000,9868,full,OOM,,26.23,28.03,False
+2500,video,2500,12258,answer_only,ok,2.952946901321411,17.87,18.81,True
+2500,video,2500,12258,full,OOM,,29.4,30.31,False
+3000,video,3000,14632,answer_only,ok,2.620088577270508,18.77,19.87,True
+3000,video,3000,14632,full,OOM,,21.63,24.65,False
