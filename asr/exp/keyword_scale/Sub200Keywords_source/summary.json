@@ -1,0 +1,24 @@
+[
+  {
+    "condition": "orig",
+    "list_size_video": 555,
+    "list_size_music": 390,
+    "list_size_city": 930,
+    "n_utts": 378,
+    "n_oom": 0,
+    "cer": 0.0860240472343647,
+    "ker": 0.06084656084656084,
+    "distractor_insertion_rate": 0.0265,
+    "prompt_tokens_mean": 2373.0,
+    "prompt_tokens_max": 2999,
+    "latency_mean_s": 0.3306,
+    "rtf": 0.0943,
+    "peak_mem_gb": 12.63,
+    "cer_video": 0.0658481292239254,
+    "ker_video": 0.050955414012738856,
+    "cer_music": 0.09555852563278307,
+    "ker_music": 0.07920792079207921,
+    "cer_city": 0.10439602064602062,
+    "ker_city": 0.058333333333333334
+  }
+]

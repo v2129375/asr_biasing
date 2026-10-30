@@ -1,0 +1,2 @@
+condition,list_size_video,list_size_music,list_size_city,n_utts,n_oom,cer,ker,distractor_insertion_rate,prompt_tokens_mean,prompt_tokens_max,latency_mean_s,rtf,peak_mem_gb,cer_video,ker_video,cer_music,ker_music,cer_city,ker_city
+orig,555,390,930,378,0,0.0860240472343647,0.06084656084656084,0.0265,2373.0,2999,0.3306,0.0943,12.63,0.0658481292239254,0.050955414012738856,0.09555852563278307,0.07920792079207921,0.10439602064602062,0.058333333333333334
