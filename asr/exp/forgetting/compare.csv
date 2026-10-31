@@ -1,0 +1,4 @@
+model,dataset,metric,n_utts,base_rate,ft_rate,abs_diff,rel_change,ci95_low,ci95_high,bootstrap_p,utts_worse,utts_better,utts_same,base_cjk_outputs,ft_cjk_outputs
+KworigKeywords,test-clean,WER,2620,0.01784,0.01875,0.00091,0.0507,0.00011,0.00169,0.0238,114,79,2427,0.0,0.0
+KworigKeywords,test-other,WER,2939,0.03992,0.04081,0.00089,0.0223,-0.00019,0.00198,0.115,206,159,2574,0.0,0.0
+KworigKeywords,aishell,CER,7176,0.03922,0.02393,-0.01529,-0.3899,-0.01711,-0.01355,0.0,334,607,6235,,

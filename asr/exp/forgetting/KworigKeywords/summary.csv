@@ -1,0 +1,4 @@
+dataset,metric,n_utts,n_oom,error_rate,sub_rate,del_rate,ins_rate,sentence_error_rate,empty_output,cjk_output_rate,latency_mean_s,rtf,peak_mem_gb,latin_output_rate
+test-clean,WER,2620,0,0.01875,0.0146,0.00245,0.0017,0.2332,0,0.0,0.6069,0.0817,11.63,
+test-other,WER,2939,0,0.04081,0.03198,0.0045,0.00433,0.3909,0,0.0,0.5513,0.0843,11.62,
+aishell,CER,7176,0,0.02393,0.02177,0.00122,0.00094,0.2245,0,,0.371,0.0737,11.29,0.0006
