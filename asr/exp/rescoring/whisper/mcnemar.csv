@@ -1,0 +1,6 @@
+A,B,only_A_correct,only_B_correct,p
+1best,select,75,45,0.00785
+1best,score,11,49,7.56e-07
+1best,dynamic_keyword,3,124,4.01e-33
+dynamic_keyword,select,153,2,5.29e-43
+dynamic_keyword,score,86,3,3.8e-22
