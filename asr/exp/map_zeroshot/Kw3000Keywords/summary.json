@@ -1,0 +1,20 @@
+[
+  {
+    "condition": "full",
+    "list_size": 4923,
+    "n_utts": 4239,
+    "n_oom": 0,
+    "n_error": 0,
+    "cer_mean": 0.15803434586714454,
+    "cer_corpus": 0.1448,
+    "ker": 0.3541,
+    "ker_poi名称": 0.3741,
+    "ker_终点名称": 0.3467,
+    "ker_起点名称": 0.0,
+    "ker_途经点名称": 0.3333,
+    "prompt_insertion_rate": 0.0451,
+    "prompt_tokens_mean": 25819.9,
+    "latency_mean_s": 2.1865,
+    "peak_mem_gb": 23.88
+  }
+]

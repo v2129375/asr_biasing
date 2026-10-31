@@ -1,0 +1,20 @@
+標註檔：/home/v2129375/dataset/catslu_traindev/data/map/train.json, /home/v2129375/dataset/catslu_traindev/data/map/development.json, /home/v2129375/dataset/catslu_test/data/map/test.json
+關鍵詞槽位（優先順序）：终点名称 > poi名称 > 途经点名称 > 起点名称
+總句數：7592
+保留句數：4240
+主要關鍵詞槽位：终点名称：3073
+關鍵詞為指示詞/泛稱或太短而排除：133
+沒有地點名稱槽位：3352
+主要關鍵詞槽位：poi名称：1160
+一句含多個地點名稱：24
+主要關鍵詞槽位：途经点名称：6
+主要關鍵詞槽位：起点名称：1
+關鍵詞含非中文而排除：39
+音訊檔不存在：0 句
+主要關鍵詞種類數：3841
+只出現一次的主要關鍵詞：3596 種
+資料中出現過的地點名稱（keyword_from_data.txt）：3860 個
+lexicon 檔：/home/v2129375/dataset/catslu_traindev/data/map/lexicon/poi_name.txt
+lexicon 版關鍵詞（keyword.txt）：4923 個
+測試句主要關鍵詞被 lexicon 涵蓋的比例：100.00%
+各原始 split 句數：{'train': 2900, 'test': 837, 'development': 503}

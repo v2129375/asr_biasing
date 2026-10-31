@@ -1,0 +1,2 @@
+condition,list_size,n_utts,n_oom,n_error,cer_mean,cer_corpus,ker,ker_poi名称,ker_终点名称,ker_起点名称,ker_途经点名称,prompt_insertion_rate,prompt_tokens_mean,latency_mean_s,peak_mem_gb
+full,4923,4239,0,0,0.15803434586714454,0.1448,0.3541,0.3741,0.3467,0.0,0.3333,0.0451,25819.9,2.1865,23.88
